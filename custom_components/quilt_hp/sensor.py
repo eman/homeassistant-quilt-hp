@@ -984,7 +984,7 @@ class QuiltEnergySensor(QuiltEntity, SensorEntity):
     """Today's energy consumption for a Quilt space (room)."""
 
     _attr_device_class: SensorDeviceClass = SensorDeviceClass.ENERGY
-    _attr_state_class: SensorStateClass = SensorStateClass.TOTAL
+    _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement: str = UnitOfEnergy.KILO_WATT_HOUR
     _attr_translation_key: str = "energy_today"
     _attr_suggested_display_precision: int = 3
