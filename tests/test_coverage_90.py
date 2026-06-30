@@ -393,9 +393,10 @@ class TestCoordinatorEnergy:
         await coordinator.async_setup()
 
         # Make async_create_background_task actually schedule the coroutine.
-        coordinator.config_entry.async_create_background_task = lambda h, coro, **kw: (
-            h.async_create_task(coro)
-        )
+        def _create_bg_task(h, coro, **kw):
+            return h.async_create_task(coro)
+
+        coordinator.config_entry.async_create_background_task = _create_bg_task
 
         # Force stale so the refresh actually fetches, then simulate a push.
         coordinator._energy_last_fetch = datetime.now(UTC) - timedelta(hours=1)
@@ -416,9 +417,10 @@ class TestCoordinatorEnergy:
         coordinator = QuiltCoordinator(hass, _entry_mock(), "u@e.com")
         await coordinator.async_setup()
 
-        coordinator.config_entry.async_create_background_task = lambda h, coro, **kw: (
-            h.async_create_task(coro)
-        )
+        def _create_bg_task(h, coro, **kw):
+            return h.async_create_task(coro)
+
+        coordinator.config_entry.async_create_background_task = _create_bg_task
 
         # Force stale — fetch will run.
         coordinator._energy_last_fetch = datetime.now(UTC) - timedelta(hours=1)
@@ -441,9 +443,10 @@ class TestCoordinatorEnergy:
         coordinator = QuiltCoordinator(hass, _entry_mock(), "u@e.com")
         await coordinator.async_setup()
 
-        coordinator.config_entry.async_create_background_task = lambda h, coro, **kw: (
-            h.async_create_task(coro)
-        )
+        def _create_bg_task(h, coro, **kw):
+            return h.async_create_task(coro)
+
+        coordinator.config_entry.async_create_background_task = _create_bg_task
 
         # Recent fetch — energy update will be rate-limited.
         coordinator._energy_last_fetch = datetime.now(UTC)

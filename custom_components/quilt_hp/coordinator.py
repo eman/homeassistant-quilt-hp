@@ -318,7 +318,7 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         """
         before = self._energy_last_fetch
         await self._async_update_energy()
-        if self._energy_last_fetch != before:
+        if self._energy_last_fetch != before and self.data is not None:  # pyright: ignore[reportUnnecessaryComparison]
             self.async_set_updated_data(self.data)
 
     # ------------------------------------------------------------------
