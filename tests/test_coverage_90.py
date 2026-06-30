@@ -408,6 +408,56 @@ class TestCoordinatorEnergy:
         client.get_energy.assert_awaited_once()
         assert coordinator.energy_by_space_id["space-001"] == 2.5
 
+    async def test_stream_push_notifies_entities_after_energy_fetch(
+        self, hass: HomeAssistant, mock_client
+    ) -> None:
+        """After a fetch, async_set_updated_data must be called so energy sensors re-render."""
+        client, _stream = mock_client
+        coordinator = QuiltCoordinator(hass, _entry_mock(), "u@e.com")
+        await coordinator.async_setup()
+
+        coordinator.config_entry.async_create_background_task = (
+            lambda h, coro, **kw: h.async_create_task(coro)
+        )
+
+        # Force stale — fetch will run.
+        coordinator._energy_last_fetch = datetime.now(UTC) - timedelta(hours=1)
+        metric = SimpleNamespace(space_id="space-001", total_kwh=3.0)
+        client.get_energy = AsyncMock(return_value=[metric])
+
+        listener_called = []
+        coordinator.async_add_listener(lambda: listener_called.append(True))
+
+        coordinator._on_stream_energy_refresh(make_space())
+        await hass.async_block_till_done()
+
+        assert listener_called, "Listeners should be notified after energy fetch"
+
+    async def test_stream_push_no_notify_when_rate_limited(
+        self, hass: HomeAssistant, mock_client
+    ) -> None:
+        """When rate-limited (no fetch), listeners must NOT be notified spuriously."""
+        client, _stream = mock_client
+        coordinator = QuiltCoordinator(hass, _entry_mock(), "u@e.com")
+        await coordinator.async_setup()
+
+        coordinator.config_entry.async_create_background_task = (
+            lambda h, coro, **kw: h.async_create_task(coro)
+        )
+
+        # Recent fetch — energy update will be rate-limited.
+        coordinator._energy_last_fetch = datetime.now(UTC)
+        client.get_energy = AsyncMock(return_value=[])
+
+        listener_called = []
+        coordinator.async_add_listener(lambda: listener_called.append(True))
+
+        coordinator._on_stream_energy_refresh(make_space())
+        await hass.async_block_till_done()
+
+        client.get_energy.assert_not_awaited()
+        assert not listener_called, "Rate-limited push should not trigger spurious notify"
+
 
 class TestCoordinatorAuthRetry:
     """Test auth retry failure path."""

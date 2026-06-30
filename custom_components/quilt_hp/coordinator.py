@@ -303,9 +303,22 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         """
         self.config_entry.async_create_background_task(
             self.hass,
-            self._async_update_energy(),
+            self._update_energy_and_notify(),
             name="quilt_hp-energy-refresh",
         )
+
+    async def _update_energy_and_notify(self) -> None:
+        """Fetch energy and trigger entity updates if new data was retrieved.
+
+        ``_async_update_energy`` is rate-limited and silently exits early when
+        the last fetch is recent.  We only call ``async_set_updated_data`` when
+        a fetch actually happened so we don't issue spurious notifications on
+        every stream push.
+        """
+        before = self._energy_last_fetch
+        await self._async_update_energy()
+        if self._energy_last_fetch != before:
+            self.async_set_updated_data(self.data)
 
     # ------------------------------------------------------------------
     # Polling fallback
