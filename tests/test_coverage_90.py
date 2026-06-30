@@ -393,8 +393,8 @@ class TestCoordinatorEnergy:
         await coordinator.async_setup()
 
         # Make async_create_background_task actually schedule the coroutine.
-        coordinator.config_entry.async_create_background_task = (
-            lambda h, coro, **kw: h.async_create_task(coro)
+        coordinator.config_entry.async_create_background_task = lambda h, coro, **kw: (
+            h.async_create_task(coro)
         )
 
         # Force stale so the refresh actually fetches, then simulate a push.
@@ -416,8 +416,8 @@ class TestCoordinatorEnergy:
         coordinator = QuiltCoordinator(hass, _entry_mock(), "u@e.com")
         await coordinator.async_setup()
 
-        coordinator.config_entry.async_create_background_task = (
-            lambda h, coro, **kw: h.async_create_task(coro)
+        coordinator.config_entry.async_create_background_task = lambda h, coro, **kw: (
+            h.async_create_task(coro)
         )
 
         # Force stale — fetch will run.
@@ -441,8 +441,8 @@ class TestCoordinatorEnergy:
         coordinator = QuiltCoordinator(hass, _entry_mock(), "u@e.com")
         await coordinator.async_setup()
 
-        coordinator.config_entry.async_create_background_task = (
-            lambda h, coro, **kw: h.async_create_task(coro)
+        coordinator.config_entry.async_create_background_task = lambda h, coro, **kw: (
+            h.async_create_task(coro)
         )
 
         # Recent fetch — energy update will be rate-limited.
@@ -456,7 +456,9 @@ class TestCoordinatorEnergy:
         await hass.async_block_till_done()
 
         client.get_energy.assert_not_awaited()
-        assert not listener_called, "Rate-limited push should not trigger spurious notify"
+        assert not listener_called, (
+            "Rate-limited push should not trigger spurious notify"
+        )
 
 
 class TestCoordinatorAuthRetry:

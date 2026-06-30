@@ -227,7 +227,6 @@ async def test_reauth_otp_flow_completes(
     hass: HomeAssistant, mock_quilt_client, existing_entry
 ) -> None:
     """Reauth via OTP should abort the flow and preserve the existing entry."""
-    from homeassistant.data_entry_flow import FlowResultType as FRT
     from pytest_homeassistant_custom_component.common import start_reauth_flow
 
     sys = MagicMock()
@@ -236,19 +235,19 @@ async def test_reauth_otp_flow_completes(
     mock_quilt_client.list_systems = AsyncMock(return_value=[sys])
 
     result = await start_reauth_flow(hass, existing_entry)
-    assert result["type"] is FRT.FORM
+    assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "reauth_confirm"
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input={}
     )
-    assert result["type"] is FRT.FORM
+    assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "otp"
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input={"otp": "123456"}
     )
-    assert result["type"] is FRT.ABORT
+    assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
 
 
