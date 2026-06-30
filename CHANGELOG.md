@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Fixed
+- `diagnostics.py` accessed `hass.data[DOMAIN][entry.entry_id]` (old pattern) instead of
+  `entry.runtime_data`; every call to the HA diagnostics page raised `KeyError`
+- Config flow reconfigure + OTP: when the user changed email and OTP was required, the
+  success path called `_create_entry` and created a duplicate entry instead of updating the
+  existing one; added `_reconfigure_entry` tracking so the OTP success path routes to
+  `async_update_reload_and_abort` in reconfigure context
+- Config flow `async_step_otp`: `FlowError` (e.g. `AbortFlow`) was caught by the generic
+  `except Exception` handler and converted to an "unknown" error, silently preventing reauth
+  from completing when OTP was required; `FlowError` is now re-raised
+- Energy refresh tasks are now created via `config_entry.async_create_background_task` so
+  they are cancelled on entry unload rather than outliving it
+- Stream-triggered energy fetch did not call `async_set_updated_data` after updating
+  `energy_by_space_id`, so energy sensor entities would not re-render until the next
+  unrelated stream push; a new `_update_energy_and_notify()` wrapper calls
+  `async_set_updated_data` only when a fetch actually occurred (not on rate-limited early return)
+- Schedule switch called `coordinator.async_request_refresh()` directly after writes instead
+  of `_async_refresh_if_not_streaming()`, causing unnecessary polls while the gRPC stream
+  is active
+- Removed redundant targeted dict mutations in stream handlers that were immediately
+  overwritten by `async_set_updated_data`
+
 ## [0.5.0] - 2026-06-05
 
 ### Added
