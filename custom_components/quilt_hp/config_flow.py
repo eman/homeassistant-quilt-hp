@@ -8,6 +8,7 @@ import logging
 from typing import Any, override
 
 from homeassistant import config_entries
+from homeassistant.data_entry_flow import FlowError
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -54,6 +55,9 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # is preserved. Resolved via _otp_future when the user submits the OTP.
         self._login_task: asyncio.Task[None] | None = None
         self._otp_future: asyncio.Future[str] | None = None
+        # Set during async_step_reconfigure so the OTP success path can update
+        # the existing entry rather than creating a new one.
+        self._reconfigure_entry: config_entries.ConfigEntry | None = None
 
     # ------------------------------------------------------------------
     # Step 1: collect the email address and trigger the OTP send
@@ -156,6 +160,10 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self._route_after_login()
             except QuiltAuthError:
                 errors["base"] = "invalid_auth"
+            except FlowError:
+                # HA raises FlowError (e.g. AbortFlow) to signal successful
+                # completion in reauth/reconfigure contexts — let it propagate.
+                raise
             except Exception:
                 _LOGGER.exception("Unexpected error completing Quilt OTP login")
                 errors["base"] = "unknown"
@@ -176,7 +184,23 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def _route_after_login(self) -> config_entries.ConfigFlowResult:
-        """After successful login, either pick a home or finish immediately."""
+        """After successful login, either pick a home or finish immediately.
+
+        In reconfigure context (``_reconfigure_entry`` is set), updates the
+        existing entry instead of creating a new one.
+        """
+        if self._reconfigure_entry is not None:
+            entry = self._reconfigure_entry
+            await self._cleanup_login()
+            return self.async_update_reload_and_abort(
+                entry,
+                data={
+                    CONF_EMAIL: self._email,
+                    CONF_SYSTEM_ID: entry.data.get(CONF_SYSTEM_ID),
+                },
+                reason="reconfigure_successful",
+            )
+
         try:
             assert self._client is not None
             systems = await self._client.list_systems()
@@ -314,13 +338,17 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             self._email = user_input[CONF_EMAIL].strip().lower()
+            # Record the entry being reconfigured so the OTP success path
+            # updates it rather than creating a new entry.
+            self._reconfigure_entry = entry
             otp_needed, error_key = await self._initiate_login()
             if error_key:
+                self._reconfigure_entry = None
                 errors["base"] = error_key
             elif otp_needed:
                 return await self.async_step_otp()
             else:
-                # Login succeeded — update the entry
+                # Login succeeded without OTP — update the entry directly.
                 return self.async_update_reload_and_abort(
                     entry,
                     data={

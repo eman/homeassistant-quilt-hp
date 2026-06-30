@@ -76,10 +76,10 @@ class QuiltScheduleSwitch(QuiltEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Resume all schedules."""
         await self.coordinator.async_set_schedule_execution(paused=False)
-        await self.coordinator.async_request_refresh()
+        await self._async_refresh_if_not_streaming()
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Pause all schedules."""
         await self.coordinator.async_set_schedule_execution(paused=True)
-        await self.coordinator.async_request_refresh()
+        await self._async_refresh_if_not_streaming()

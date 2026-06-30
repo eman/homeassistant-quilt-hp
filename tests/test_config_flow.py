@@ -198,3 +198,109 @@ async def test_cannot_connect_error(hass: HomeAssistant) -> None:
 
         assert result["type"] is FlowResultType.FORM
         assert result["errors"]["base"] == "cannot_connect"
+
+
+# ── Reauth flow tests ─────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def existing_entry(hass: HomeAssistant):
+    """Create and register a pre-existing config entry for reauth/reconfigure tests."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com_sys-001",
+        data={
+            CONF_EMAIL: "user@example.com",
+            "system_id": "sys-001",
+            "home_name": "My Home",
+        },
+        title="My Home",
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+@pytest.mark.parametrize("expected_lingering_tasks", [True])
+async def test_reauth_otp_flow_completes(
+    hass: HomeAssistant, mock_quilt_client, existing_entry
+) -> None:
+    """Reauth via OTP should abort the flow and preserve the existing entry."""
+    from homeassistant.data_entry_flow import FlowResultType as FRT
+    from pytest_homeassistant_custom_component.common import start_reauth_flow
+
+    sys = MagicMock()
+    sys.id = "sys-001"
+    sys.name = "My Home"
+    mock_quilt_client.list_systems = AsyncMock(return_value=[sys])
+
+    result = await start_reauth_flow(hass, existing_entry)
+    assert result["type"] is FRT.FORM
+    assert result["step_id"] == "reauth_confirm"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={}
+    )
+    assert result["type"] is FRT.FORM
+    assert result["step_id"] == "otp"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"otp": "123456"}
+    )
+    assert result["type"] is FRT.ABORT
+    assert result["reason"] == "already_configured"
+
+
+@pytest.mark.parametrize("expected_lingering_tasks", [True])
+async def test_reconfigure_no_otp_updates_entry(
+    hass: HomeAssistant, existing_entry
+) -> None:
+    """Reconfigure without OTP (cached token) should update the entry email."""
+    with patch("custom_components.quilt_hp.config_flow.QuiltClient") as mock_cls:
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        # Simulate no OTP needed (token already valid)
+        client.login = AsyncMock(return_value=None)
+        mock_cls.return_value = client
+
+        result = await existing_entry.start_reconfigure_flow(hass)
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "reconfigure"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={CONF_EMAIL: "new@example.com"}
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert existing_entry.data[CONF_EMAIL] == "new@example.com"
+
+
+@pytest.mark.parametrize("expected_lingering_tasks", [True])
+async def test_reconfigure_otp_updates_entry_not_creates_new(
+    hass: HomeAssistant, mock_quilt_client, existing_entry
+) -> None:
+    """Reconfigure with OTP must update the existing entry, not create a new one."""
+    result = await existing_entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_EMAIL: "new@example.com"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "otp"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"otp": "123456"}
+    )
+
+    # Should update the entry, not create a new one
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert existing_entry.data[CONF_EMAIL] == "new@example.com"
+    # Only the original entry should exist
+    entries = hass.config_entries.async_entries(DOMAIN)
+    assert len(entries) == 1
