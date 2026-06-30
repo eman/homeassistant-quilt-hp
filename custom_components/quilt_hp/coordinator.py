@@ -253,52 +253,42 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
     def _on_space_update(self, space: Space) -> None:
         if self.data:
             _ = self.data.apply_space(space)
-            # Targeted index update — avoids rebuilding all 6 dicts on every tick.
-            self.spaces_by_id[space.id] = space
             self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_idu_update(self, idu: IndoorUnit) -> None:
         if self.data:
             _ = self.data.apply_indoor_unit(idu)
-            self.idu_by_id[idu.id] = idu
-            if idu.space_id:
-                self.idu_by_space_id[idu.space_id] = idu
             self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_odu_update(self, odu: OutdoorUnit) -> None:
         if self.data:
             _ = self.data.apply_outdoor_unit(odu)
-            self.odu_by_id[odu.id] = odu
             self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_ctrl_update(self, ctrl: Controller) -> None:
         if self.data:
             _ = self.data.apply_controller(ctrl)
-            self.ctrl_by_id[ctrl.id] = ctrl
             self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_qsm_update(self, qsm: QuiltSmartModule) -> None:
         if self.data:
             _ = self.data.apply_qsm(qsm)
-            self.qsm_by_id[qsm.id] = qsm
             self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_remote_sensor_update(self, rs: RemoteSensor) -> None:
         if self.data:
             _ = self.data.apply_remote_sensor(rs)
-            self.remote_sensor_by_id[rs.id] = rs
             self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_ctrl_remote_sensor_update(self, crs: ControllerRemoteSensor) -> None:
         if self.data:
             _ = self.data.apply_controller_remote_sensor(crs)
-            self.ctrl_remote_sensor_by_id[crs.id] = crs
             self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
@@ -311,7 +301,25 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         rate-limited in ``_async_update_energy``, so running it on every push
         is cheap.
         """
-        self.hass.async_create_task(self._async_update_energy())
+        if self.config_entry is not None:
+            self.config_entry.async_create_background_task(
+                self.hass,
+                self._update_energy_and_notify(),
+                name="quilt_hp-energy-refresh",
+            )
+
+    async def _update_energy_and_notify(self) -> None:
+        """Fetch energy and trigger entity updates if new data was retrieved.
+
+        ``_async_update_energy`` is rate-limited and silently exits early when
+        the last fetch is recent.  We only call ``async_set_updated_data`` when
+        a fetch actually happened so we don't issue spurious notifications on
+        every stream push.
+        """
+        before = self._energy_last_fetch
+        await self._async_update_energy()
+        if self._energy_last_fetch != before and self.data is not None:  # pyright: ignore[reportUnnecessaryComparison]
+            self.async_set_updated_data(self.data)
 
     # ------------------------------------------------------------------
     # Polling fallback

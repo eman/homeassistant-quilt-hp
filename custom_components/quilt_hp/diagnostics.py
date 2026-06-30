@@ -7,19 +7,18 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
 from .coordinator import QuiltCoordinator
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
+    _hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry.
 
     Sensitive data (email address, tokens) is redacted.  The output is
     intended for attaching to bug reports.
     """
-    coordinator: QuiltCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: QuiltCoordinator = entry.runtime_data
     data = coordinator.data
 
     spaces_info: list[dict[str, Any]] = []

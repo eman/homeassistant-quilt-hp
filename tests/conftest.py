@@ -291,4 +291,5 @@ def make_mock_coordinator(hass: HomeAssistant, snapshot=None) -> MagicMock:
     coordinator.async_set_indoor_unit = AsyncMock()
     coordinator.async_set_schedule_execution = AsyncMock()
     coordinator.async_request_refresh = AsyncMock()
+    coordinator.is_streaming = False
     return coordinator
