@@ -301,11 +301,12 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         rate-limited in ``_async_update_energy``, so running it on every push
         is cheap.
         """
-        self.config_entry.async_create_background_task(
-            self.hass,
-            self._update_energy_and_notify(),
-            name="quilt_hp-energy-refresh",
-        )
+        if self.config_entry is not None:
+            self.config_entry.async_create_background_task(
+                self.hass,
+                self._update_energy_and_notify(),
+                name="quilt_hp-energy-refresh",
+            )
 
     async def _update_energy_and_notify(self) -> None:
         """Fetch energy and trigger entity updates if new data was retrieved.
