@@ -384,6 +384,25 @@ class TestCoordinatorEnergy:
         assert coordinator.energy_by_space_id["space-001"] == 1.5
         assert coordinator.energy_last_reset is not None
 
+    async def test_stream_push_refreshes_energy(
+        self, hass: HomeAssistant, mock_client
+    ) -> None:
+        """A stream push should trigger a (rate-limited) energy refresh."""
+        client, _stream = mock_client
+        coordinator = QuiltCoordinator(hass, _entry_mock(), "u@e.com")
+        await coordinator.async_setup()
+
+        # Force stale so the refresh actually fetches, then simulate a push.
+        coordinator._energy_last_fetch = datetime.now(UTC) - timedelta(hours=1)
+        metric = SimpleNamespace(space_id="space-001", total_kwh=2.5)
+        client.get_energy = AsyncMock(return_value=[metric])
+
+        coordinator._on_stream_energy_refresh(make_space())
+        await hass.async_block_till_done()
+
+        client.get_energy.assert_awaited_once()
+        assert coordinator.energy_by_space_id["space-001"] == 2.5
+
 
 class TestCoordinatorAuthRetry:
     """Test auth retry failure path."""

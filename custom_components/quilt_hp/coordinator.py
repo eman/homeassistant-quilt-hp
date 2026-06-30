@@ -233,6 +233,18 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         stream.on_remote_sensor_update(self._on_remote_sensor_update)
         stream.on_controller_remote_sensor_update(self._on_ctrl_remote_sensor_update)
         stream.on_error(self._on_stream_error)
+        # Refresh energy on any push — registered for every entity type since
+        # the per-type handlers above only update their own snapshot data.
+        for register in (
+            stream.on_space_update,
+            stream.on_indoor_unit_update,
+            stream.on_outdoor_unit_update,
+            stream.on_controller_update,
+            stream.on_qsm_update,
+            stream.on_remote_sensor_update,
+            stream.on_controller_remote_sensor_update,
+        ):
+            register(self._on_stream_energy_refresh)
         await stream.start()
         # Only assign after successful start so async_shutdown doesn't try to
         # stop a stream that never began.
@@ -289,6 +301,17 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
             self.ctrl_remote_sensor_by_id[crs.id] = crs
             self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
+
+    def _on_stream_energy_refresh(self, _entity: object) -> None:
+        """Refresh energy on any stream push, regardless of entity type.
+
+        Registered against every entity event so that pushes — which bypass
+        the poll path in ``_async_update_data`` where energy is normally
+        fetched — also keep the energy sensors current. The fetch is
+        rate-limited in ``_async_update_energy``, so running it on every push
+        is cheap.
+        """
+        self.hass.async_create_task(self._async_update_energy())
 
     # ------------------------------------------------------------------
     # Polling fallback
