@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-06-30
+
+### Fixed
+- Upgraded `quilt-hp-python` dependency to `>=0.5.3`
+  - Fixes a hang in `_make_cognito_client()` where botocore's EC2 instance metadata
+    credential discovery (IMDS at 169.254.169.254) blocked the calling thread
+    indefinitely on non-EC2 hosts (e.g. Home Assistant Yellow), exceeding the 20-second
+    `async_setup` budget and causing `setup_retry` on every HA restart when the
+    Cognito token was expired
+
 ## [0.5.1] - 2026-06-30
 
 ### Changed
