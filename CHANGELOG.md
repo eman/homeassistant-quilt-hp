@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-30
+
 ### Changed
 - Upgraded `quilt-hp-python` dependency to `>=0.5.1`
   - `QuiltClient.close()` now clears the cached token, preventing stale token access after close
@@ -138,7 +140,8 @@
 - JWT token persistence via `HATokenStore` (HA `Storage` API)
 - Automatic token refresh with transparent re-login on expiry
 
-[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.4.0...v0.5.0
 [0.2.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/eman/homeassistant-quilt-hp/releases/tag/v0.1.0
