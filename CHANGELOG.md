@@ -30,6 +30,11 @@
   is active
 - Removed redundant targeted dict mutations in stream handlers that were immediately
   overwritten by `async_set_updated_data`
+- Energy sensors stopped updating while the gRPC stream was active because
+  `async_set_updated_data` cancels pending coordinator polls; the coordinator now
+  explicitly checks whether an energy refresh is due on each stream push and fetches
+  if so, ensuring reliable 30-minute energy updates regardless of stream activity
+  (thanks [@c00w](https://github.com/c00w), [#3](https://github.com/eman/homeassistant-quilt-hp/pull/3))
 
 ## [0.5.0] - 2026-06-05
 
