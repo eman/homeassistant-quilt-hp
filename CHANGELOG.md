@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+- Upgraded `quilt-hp-python` dependency to `>=0.5.1`
+  - `QuiltClient.close()` now clears the cached token, preventing stale token access after close
+  - `invalidate_snapshot()` log level lowered from `WARNING` to `DEBUG`, reducing log noise
+  - `invoke_refresh_callback` deduplicated into a single shared implementation; eliminates repeated `inspect.signature()` calls on every token-refresh event
+  - `FanSpeed.to_wire()` / `LouverAngle.to_wire()` no longer re-allocate mapping dicts on every call
+
 ### Fixed
 - `diagnostics.py` accessed `hass.data[DOMAIN][entry.entry_id]` (old pattern) instead of
   `entry.runtime_data`; every call to the HA diagnostics page raised `KeyError`
