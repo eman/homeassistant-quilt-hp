@@ -320,7 +320,8 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         try:
             await self._async_update_energy()
         except ConfigEntryAuthFailed:
-            self.config_entry.async_start_reauth(self.hass)
+            if self.config_entry is not None:
+                self.config_entry.async_start_reauth(self.hass)
             return
         if self._energy_last_fetch != before and self.data is not None:  # pyright: ignore[reportUnnecessaryComparison]
             self.async_set_updated_data(self.data)
