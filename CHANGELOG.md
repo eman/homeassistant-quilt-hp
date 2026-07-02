@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- Stream-triggered energy fetches with an expired JWT could raise `AttributeError` on
+  `config_entry.async_start_reauth` when `config_entry` was `None`, and could re-login
+  more times than necessary on a single retry; the coordinator now guards the reauth call
+  and only re-authenticates once per failed energy fetch (thanks
+  [@c00w](https://github.com/c00w),
+  [#9](https://github.com/eman/homeassistant-quilt-hp/pull/9))
+
 ## [0.5.2] - 2026-06-30
 
 ### Fixed
