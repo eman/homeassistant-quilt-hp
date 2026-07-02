@@ -317,7 +317,12 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         every stream push.
         """
         before = self._energy_last_fetch
-        await self._async_update_energy()
+        try:
+            await self._async_update_energy()
+        except ConfigEntryAuthFailed:
+            if self.config_entry is not None:
+                self.config_entry.async_start_reauth(self.hass)
+            return
         if self._energy_last_fetch != before and self.data is not None:  # pyright: ignore[reportUnnecessaryComparison]
             self.async_set_updated_data(self.data)
 
@@ -359,12 +364,14 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
             return
         try:
             start = datetime.combine(now.date(), dt_time.min, tzinfo=UTC)
-            metrics = await self._client.get_energy(
-                start, now, system_id=self._system_id
+            metrics = await self._with_auth_retry(
+                lambda: self._client.get_energy(start, now, system_id=self._system_id)
             )
             self.energy_by_space_id = {m.space_id: m.total_kwh for m in metrics}
             self.energy_last_reset = start
             self._energy_last_fetch = now
+        except ConfigEntryAuthFailed:
+            raise
         except Exception as err:
             _LOGGER.warning("Failed to fetch Quilt energy data: %s", err)
 
