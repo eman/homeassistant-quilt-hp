@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-07-02
+
 ### Fixed
 - Stream-triggered energy fetches with an expired JWT could raise `AttributeError` on
   `config_entry.async_start_reauth` when `config_entry` was `None`, and could re-login
@@ -158,7 +160,9 @@
 - JWT token persistence via `HATokenStore` (HA `Storage` API)
 - Automatic token refresh with transparent re-login on expiry
 
-[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.4.0...v0.5.0
 [0.2.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.1.0...v0.2.0
