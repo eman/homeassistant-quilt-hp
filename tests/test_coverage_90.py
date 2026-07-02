@@ -384,6 +384,44 @@ class TestCoordinatorEnergy:
         assert coordinator.energy_by_space_id["space-001"] == 1.5
         assert coordinator.energy_last_reset is not None
 
+    async def test_energy_fetch_retries_on_expired_jwt(
+        self, hass: HomeAssistant, mock_client
+    ) -> None:
+        client, _stream = mock_client
+        coordinator = QuiltCoordinator(hass, _entry_mock(), "u@e.com")
+        await coordinator.async_setup()
+
+        coordinator._energy_last_fetch = datetime.now(UTC) - timedelta(hours=1)
+        metric = SimpleNamespace(space_id="space-001", total_kwh=1.5)
+        client.get_energy = AsyncMock(
+            side_effect=[QuiltError("GetEnergyMetrics failed: Jwt is expired"), [metric]]
+        )
+
+        await coordinator._async_update_energy()
+
+        assert client.get_energy.await_count == 2
+        assert client.login.await_count == 2
+        assert coordinator.energy_by_space_id["space-001"] == 1.5
+
+    async def test_energy_fetch_auth_retry_failure_raises_config_entry_auth_failed(
+        self, hass: HomeAssistant, mock_client
+    ) -> None:
+        client, _stream = mock_client
+        coordinator = QuiltCoordinator(hass, _entry_mock(), "u@e.com")
+        await coordinator.async_setup()
+
+        coordinator._energy_last_fetch = datetime.now(UTC) - timedelta(hours=1)
+        client.get_energy = AsyncMock(
+            side_effect=QuiltError("GetEnergyMetrics failed: Jwt is expired")
+        )
+        client.login = AsyncMock(side_effect=QuiltError("re-login failed"))
+
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coordinator._async_update_energy()
+
+        client.get_energy.assert_awaited_once()
+        client.login.assert_awaited_once()
+
     async def test_stream_push_refreshes_energy(
         self, hass: HomeAssistant, mock_client
     ) -> None:

@@ -359,12 +359,14 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
             return
         try:
             start = datetime.combine(now.date(), dt_time.min, tzinfo=UTC)
-            metrics = await self._client.get_energy(
-                start, now, system_id=self._system_id
+            metrics = await self._with_auth_retry(
+                lambda: self._client.get_energy(start, now, system_id=self._system_id)
             )
             self.energy_by_space_id = {m.space_id: m.total_kwh for m in metrics}
             self.energy_last_reset = start
             self._energy_last_fetch = now
+        except ConfigEntryAuthFailed:
+            raise
         except Exception as err:
             _LOGGER.warning("Failed to fetch Quilt energy data: %s", err)
 
