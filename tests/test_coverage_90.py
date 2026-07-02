@@ -393,14 +393,18 @@ class TestCoordinatorEnergy:
 
         coordinator._energy_last_fetch = datetime.now(UTC) - timedelta(hours=1)
         metric = SimpleNamespace(space_id="space-001", total_kwh=1.5)
+        client.login.reset_mock()
         client.get_energy = AsyncMock(
-            side_effect=[QuiltError("GetEnergyMetrics failed: Jwt is expired"), [metric]]
+            side_effect=[
+                QuiltError("GetEnergyMetrics failed: Jwt is expired"),
+                [metric],
+            ]
         )
 
         await coordinator._async_update_energy()
 
         assert client.get_energy.await_count == 2
-        assert client.login.await_count == 2
+        client.login.assert_awaited_once()
         assert coordinator.energy_by_space_id["space-001"] == 1.5
 
     async def test_energy_fetch_auth_retry_failure_raises_config_entry_auth_failed(
@@ -446,6 +450,21 @@ class TestCoordinatorEnergy:
 
         client.get_energy.assert_awaited_once()
         assert coordinator.energy_by_space_id["space-001"] == 2.5
+
+    async def test_stream_push_auth_failure_starts_reauth(self) -> None:
+        """Stream-triggered energy auth failures should start reauth."""
+        coordinator = object.__new__(QuiltCoordinator)
+        coordinator.hass = MagicMock()
+        coordinator.config_entry = MagicMock()
+        coordinator.data = make_snapshot()
+        coordinator._energy_last_fetch = datetime.now(UTC) - timedelta(hours=1)
+        coordinator._async_update_energy = AsyncMock(side_effect=ConfigEntryAuthFailed)
+
+        await coordinator._update_energy_and_notify()
+
+        coordinator.config_entry.async_start_reauth.assert_called_once_with(
+            coordinator.hass
+        )
 
     async def test_stream_push_notifies_entities_after_energy_fetch(
         self, hass: HomeAssistant, mock_client
