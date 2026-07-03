@@ -256,5 +256,16 @@
         "name": "Schedules"
       }
     }
+  },
+  "exceptions": {
+    "command_failed": {
+      "message": "Quilt command failed: {error}"
+    },
+    "auth_failed": {
+      "message": "Quilt authentication failed. Please re-authenticate."
+    },
+    "unknown_preset": {
+      "message": "Unknown Quilt preset {preset} for this room. Valid presets are listed on the climate entity."
+    }
   }
 }

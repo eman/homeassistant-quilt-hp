@@ -36,6 +36,11 @@
   error codes are re-enabled
 
 ### Added
+- Exception translations: entity action failures, unknown presets, and
+  re-authentication errors now use translatable messages (`exceptions` section in
+  `strings.json`)
+- README: use cases and automation examples (presence-based setback, schedule
+  pausing, energy budgets, LED notifications) validated against a live system
 - Dynamic device support: indoor units, spaces, controllers, remote sensors, and
   locations added to the Quilt account after setup now appear without a reload, and
   devices removed from the account are cleaned from the HA registry at setup

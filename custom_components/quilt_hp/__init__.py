@@ -63,7 +63,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: QuiltConfigEntry) -> boo
     except QuiltAuthError as err:
         # Cached tokens rejected and no OTP callback available — the user
         # must re-authenticate interactively.
-        raise ConfigEntryAuthFailed(f"Quilt authentication failed: {err}") from err
+        raise ConfigEntryAuthFailed(
+            f"Quilt authentication failed: {err}",
+            translation_domain=DOMAIN,
+            translation_key="auth_failed",
+        ) from err
     except TimeoutError as err:
         raise ConfigEntryNotReady("Timed out fetching initial Quilt snapshot") from err
     except Exception as err:

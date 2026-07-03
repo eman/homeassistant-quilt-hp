@@ -197,7 +197,12 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
             # Includes ConfigEntryAuthFailed from the auth retry.
             raise
         except QuiltError as err:
-            raise HomeAssistantError(f"Quilt command failed: {err}") from err
+            raise HomeAssistantError(
+                f"Quilt command failed: {err}",
+                translation_domain=DOMAIN,
+                translation_key="command_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
 
     async def async_setup(self) -> None:
         """Open gRPC channel, login, fetch initial snapshot, start stream."""
@@ -526,12 +531,16 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         except QuiltError as auth_err:
             _LOGGER.error("Quilt re-authentication failed: %s", auth_err)
             raise ConfigEntryAuthFailed(
-                "Quilt authentication failed. Please re-authenticate."
+                "Quilt authentication failed. Please re-authenticate.",
+                translation_domain=DOMAIN,
+                translation_key="auth_failed",
             ) from auth_err
 
         try:
             return await operation()
         except QuiltAuthError as err:
             raise ConfigEntryAuthFailed(
-                "Quilt authentication failed. Please re-authenticate."
+                "Quilt authentication failed. Please re-authenticate.",
+                translation_domain=DOMAIN,
+                translation_key="auth_failed",
             ) from err

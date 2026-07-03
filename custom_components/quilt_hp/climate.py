@@ -28,6 +28,7 @@ from quilt_hp.models.enums import (
 )
 from quilt_hp.models.space import Space
 
+from .const import DOMAIN
 from .coordinator import QuiltCoordinator
 from .entity import QuiltEntity, async_setup_dynamic_entities, idu_device_info
 from .utils import normalize_float
@@ -317,7 +318,10 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
         )
         if target is None:
             raise ServiceValidationError(
-                f"Unknown Quilt preset {preset_mode!r} for space {self._space_id}"
+                f"Unknown Quilt preset {preset_mode!r} for space {self._space_id}",
+                translation_domain=DOMAIN,
+                translation_key="unknown_preset",
+                translation_placeholders={"preset": preset_mode},
             )
 
         await self.coordinator.async_set_space(
