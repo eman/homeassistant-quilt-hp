@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
+
 from custom_components.quilt_hp.entity import (
+    QuiltControllerEntity,
     QuiltEntity,
+    QuiltIDUEntity,
     _clean,
+    async_setup_dynamic_entities,
     controller_device_info,
     ctrl_remote_sensor_device_info,
     idu_device_info,
@@ -220,3 +226,112 @@ async def test_location_device_info(hass) -> None:
     assert info["manufacturer"] == "Quilt"
     assert "System" in info["model"]
     assert ("quilt_hp", f"loc_{loc.id}") in info["identifiers"]
+
+
+# ── QuiltIDUEntity / QuiltControllerEntity ────────────────────────────────────
+
+
+async def test_idu_entity_availability(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    entity = QuiltIDUEntity(coordinator, "idu-001")
+    assert entity.available is True
+
+    coordinator.idu_by_id = {}
+    assert entity.available is False
+
+
+async def test_idu_entity_unavailable_when_offline(hass) -> None:
+    idu = make_idu(online=False)
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[idu]))
+    entity = QuiltIDUEntity(coordinator, "idu-001")
+    assert entity.available is False
+
+
+async def test_idu_entity_device_info(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    entity = QuiltIDUEntity(coordinator, "idu-001")
+    assert ("quilt_hp", "i_idu-001") in entity.device_info["identifiers"]
+
+
+async def test_controller_entity_availability(hass) -> None:
+    ctrl = make_controller()
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    entity = QuiltControllerEntity(coordinator, "ctrl-001")
+    assert entity.available is True
+
+    coordinator.ctrl_by_id = {}
+    assert entity.available is False
+
+
+async def test_controller_entity_unavailable_when_offline(hass) -> None:
+    ctrl = make_controller()
+    # A stale timestamp is positive evidence of being offline (None fails open).
+    ctrl.state_updated_at = datetime.now(tz=UTC) - timedelta(hours=1)
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    entity = QuiltControllerEntity(coordinator, "ctrl-001")
+    assert entity.available is False
+
+
+async def test_controller_entity_available_without_timestamp(hass) -> None:
+    """No state timestamp → assume online (fail-open, server omits the field)."""
+    ctrl = make_controller(online=False)  # state_updated_at=None
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    entity = QuiltControllerEntity(coordinator, "ctrl-001")
+    assert entity.available is True
+
+
+async def test_controller_entity_device_info(hass) -> None:
+    ctrl = make_controller()
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    entity = QuiltControllerEntity(coordinator, "ctrl-001")
+    info = entity.device_info
+    assert ("quilt_hp", "c_ctrl-001") in info["identifiers"]
+    assert info["via_device"] == ("quilt_hp", "i_idu-001")
+
+
+# ── async_setup_dynamic_entities ──────────────────────────────────────────────
+
+
+async def test_dynamic_entities_initial_add_and_listener(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    entry = MagicMock()
+    added: list[list] = []
+
+    def build_new(known: set[str]):
+        return [(k, MagicMock()) for k in ("a", "b") if k not in known]
+
+    async_setup_dynamic_entities(
+        entry, coordinator, lambda ents: added.append(list(ents)), build_new
+    )
+
+    assert len(added) == 1
+    assert len(added[0]) == 2
+    entry.async_on_unload.assert_called_once()
+    coordinator.async_add_listener.assert_called_once()
+
+
+async def test_dynamic_entities_adds_only_new_keys_on_update(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    entry = MagicMock()
+    added: list[list] = []
+    keys = ["a"]
+
+    def build_new(known: set[str]):
+        return [(k, MagicMock()) for k in keys if k not in known]
+
+    async_setup_dynamic_entities(
+        entry, coordinator, lambda ents: added.append(list(ents)), build_new
+    )
+    assert len(added) == 1
+
+    # Coordinator update with no new devices: nothing added.
+    for listener in coordinator.listeners:
+        listener()
+    assert len(added) == 1
+
+    # New device appears: exactly one new entity added.
+    keys.append("b")
+    for listener in coordinator.listeners:
+        listener()
+    assert len(added) == 2
+    assert len(added[1]) == 1

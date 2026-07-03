@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast, override
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -32,6 +32,8 @@ from homeassistant.const import (
     LIGHT_LUX,
     PERCENTAGE,
     REVOLUTIONS_PER_MINUTE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
     UnitOfEnergy,
     UnitOfFrequency,
     UnitOfPower,
@@ -40,10 +42,10 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from quilt_hp.models.controller import Controller
+from quilt_hp.models.enums import LocalCommsHealthStatus
 from quilt_hp.models.indoor_unit import IndoorUnit
 from quilt_hp.models.outdoor_unit import OutdoorUnit
 from quilt_hp.models.qsm import QuiltSmartModule
@@ -52,24 +54,36 @@ from quilt_hp.models.space import Space
 
 from .coordinator import QuiltCoordinator
 from .entity import (
+    QuiltControllerEntity,
     QuiltEntity,
-    controller_device_info,
+    QuiltIDUEntity,
+    async_setup_dynamic_entities,
     ctrl_remote_sensor_device_info,
-    idu_device_info,
     odu_device_info,
     remote_sensor_device_info,
 )
-from .utils import normalize_temperature as _normalize_temperature
+from .utils import normalize_float
 
 if TYPE_CHECKING:
     from . import QuiltConfigEntry
 
+# Read-only coordinator-driven platform — no request throttling needed.
+PARALLEL_UPDATES = 0
 
-def _local_comms_health_name(health: Any | None) -> str | None:
-    """Return the health enum name, preserving falsy enum values."""
+_COMMS_HEALTH_OPTIONS: list[str] = [m.name.lower() for m in LocalCommsHealthStatus]
+
+
+def _local_comms_health_name(health: LocalCommsHealthStatus | None) -> str | None:
+    """Return the lowercase health enum name, preserving falsy enum values."""
     if health is None:
         return None
-    return cast(str, health.name)
+    return health.name.lower()
+
+
+def _rounded(value: float | None, digits: int) -> float | None:
+    """Round *value*, passing through None/NaN as None."""
+    normalized = normalize_float(value)
+    return round(normalized, digits) if normalized is not None else None
 
 
 # ── Space temperature sensor (on QSM device) ──────────────────────────────────
@@ -83,14 +97,14 @@ class SpaceSensorDescription(SensorEntityDescription):
 SPACE_SENSOR_DESCRIPTIONS: tuple[SpaceSensorDescription, ...] = (
     SpaceSensorDescription(
         key="space_temperature",
-        name="Space Temperature",
+        translation_key="space_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         value_fn=lambda space: (
             None
-            if getattr(space.state, "has_missing_ambient_temperature", False)
-            else _normalize_temperature(space.state.ambient_temperature_c)
+            if space.state.has_missing_ambient_temperature
+            else normalize_float(space.state.ambient_temperature_c)
         ),
     ),
 )
@@ -108,109 +122,121 @@ class IDUSensorDescription(SensorEntityDescription):
 IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
     IDUSensorDescription(
         key="ambient_temperature",
-        name="Temperature",
+        translation_key="temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        value_fn=lambda idu: _normalize_temperature(idu.state.ambient_temperature_c),
+        value_fn=lambda idu: normalize_float(idu.state.ambient_temperature_c),
     ),
     IDUSensorDescription(
         key="ambient_humidity",
-        name="Humidity",
+        translation_key="humidity",
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
-        value_fn=lambda idu: idu.state.ambient_humidity_percent,
+        value_fn=lambda idu: normalize_float(idu.state.ambient_humidity_percent),
     ),
     IDUSensorDescription(
         key="fan_speed_rpm",
-        name="Fan Speed",
+        translation_key="fan_speed",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=REVOLUTIONS_PER_MINUTE,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda idu: idu.state.fan_speed_rpm,
+        value_fn=lambda idu: normalize_float(idu.state.fan_speed_rpm),
     ),
     IDUSensorDescription(
         key="fan_speed_setpoint_rpm",
-        name="Fan Speed Setpoint",
+        translation_key="fan_speed_setpoint",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=REVOLUTIONS_PER_MINUTE,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda idu: idu.state.fan_speed_setpoint_rpm,
+        value_fn=lambda idu: normalize_float(idu.state.fan_speed_setpoint_rpm),
         entity_registry_enabled_default=False,
     ),
     IDUSensorDescription(
         key="inlet_temperature",
-        name="Inlet Temperature",
+        translation_key="inlet_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda idu: _normalize_temperature(idu.state.inlet_temperature_c),
+        value_fn=lambda idu: normalize_float(idu.state.inlet_temperature_c),
         entity_registry_enabled_default=False,
     ),
     IDUSensorDescription(
         key="outlet_temperature",
-        name="Outlet Temperature",
+        translation_key="outlet_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda idu: _normalize_temperature(idu.state.outlet_temperature_c),
+        value_fn=lambda idu: normalize_float(idu.state.outlet_temperature_c),
         entity_registry_enabled_default=False,
     ),
     IDUSensorDescription(
         key="presence_level",
-        name="Presence Level",
+        translation_key="presence_level",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda idu: round(idu.state.presence_detection_level * 100, 1),
+        value_fn=lambda idu: _rounded(
+            normalized * 100
+            if (normalized := normalize_float(idu.state.presence_detection_level))
+            is not None
+            else None,
+            1,
+        ),
         entity_registry_enabled_default=False,
     ),
     IDUSensorDescription(
         key="hvac_capacity",
-        name="HVAC Capacity",
+        translation_key="hvac_capacity",
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPower.WATT,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: (
-            idu.performance_metrics.capacity_w if idu.performance_metrics else None
+            normalize_float(idu.performance_metrics.capacity_w)
+            if idu.performance_metrics
+            else None
         ),
         entity_registry_enabled_default=False,
     ),
     IDUSensorDescription(
         key="hvac_power",
-        name="HVAC Power",
+        translation_key="hvac_power",
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPower.WATT,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: (
-            idu.performance_metrics.hvac_power_w if idu.performance_metrics else None
+            normalize_float(idu.performance_metrics.hvac_power_w)
+            if idu.performance_metrics
+            else None
         ),
         entity_registry_enabled_default=False,
     ),
     IDUSensorDescription(
         key="led_power",
-        name="LED Power",
+        translation_key="led_power",
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPower.WATT,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: (
-            idu.performance_metrics.led_power_w if idu.performance_metrics else None
+            normalize_float(idu.performance_metrics.led_power_w)
+            if idu.performance_metrics
+            else None
         ),
         entity_registry_enabled_default=False,
     ),
     IDUSensorDescription(
         key="coefficient_of_performance",
-        name="COP",
+        translation_key="coefficient_of_performance",
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: (
-            round(idu.performance_metrics.coefficient_of_performance, 2)
+            _rounded(idu.performance_metrics.coefficient_of_performance, 2)
             if idu.performance_metrics
             else None
         ),
@@ -218,12 +244,12 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
     ),
     IDUSensorDescription(
         key="calculated_ambient_temperature",
-        name="Calibrated Temperature",
+        translation_key="calibrated_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda idu: _normalize_temperature(
+        value_fn=lambda idu: normalize_float(
             idu.state.calculated_ambient_temperature_c
         ),
         entity_registry_enabled_default=False,
@@ -231,13 +257,13 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
     # Performance data sensors (detailed refrigerant / heat-exchanger telemetry)
     IDUSensorDescription(
         key="coil_temperature",
-        name="Coil Temperature",
+        translation_key="coil_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: (
-            _normalize_temperature(idu.performance_data.coil_temperature_c)
+            normalize_float(idu.performance_data.coil_temperature_c)
             if idu.performance_data
             else None
         ),
@@ -245,13 +271,13 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
     ),
     IDUSensorDescription(
         key="gas_pipe_temperature",
-        name="Gas Pipe Temperature",
+        translation_key="gas_pipe_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: (
-            _normalize_temperature(idu.performance_data.gas_pipe_temperature_c)
+            normalize_float(idu.performance_data.gas_pipe_temperature_c)
             if idu.performance_data
             else None
         ),
@@ -259,13 +285,13 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
     ),
     IDUSensorDescription(
         key="liquid_pipe_temperature",
-        name="Liquid Pipe Temperature",
+        translation_key="liquid_pipe_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: (
-            _normalize_temperature(idu.performance_data.liquid_pipe_temperature_c)
+            normalize_float(idu.performance_data.liquid_pipe_temperature_c)
             if idu.performance_data
             else None
         ),
@@ -273,25 +299,27 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
     ),
     IDUSensorDescription(
         key="inlet_humidity_perf",
-        name="Inlet Humidity (Perf)",
+        translation_key="inlet_humidity",
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: (
-            idu.performance_data.inlet_humidity_pct if idu.performance_data else None
+            normalize_float(idu.performance_data.inlet_humidity_pct)
+            if idu.performance_data
+            else None
         ),
         entity_registry_enabled_default=False,
     ),
     IDUSensorDescription(
         key="module_power",
-        name="Module Power",
+        translation_key="module_power",
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPower.WATT,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: (
-            round(
+            _rounded(
                 idu.performance_data.energy_measurement_j
                 / idu.performance_data.measurement_interval_s,
                 2,
@@ -317,33 +345,41 @@ class QSMSensorDescription(SensorEntityDescription):
 QSM_SENSOR_DESCRIPTIONS: tuple[QSMSensorDescription, ...] = (
     QSMSensorDescription(
         key="phase_detected_raw",
-        name="Motion Signal",
+        translation_key="motion_signal",
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda qsm: qsm.sensors.phase_detected_raw if qsm.sensors else None,
+        value_fn=lambda qsm: (
+            normalize_float(qsm.sensors.phase_detected_raw) if qsm.sensors else None
+        ),
         entity_registry_enabled_default=False,
     ),
     QSMSensorDescription(
         key="target_detected_raw",
-        name="Presence Signal",
+        translation_key="presence_signal",
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda qsm: qsm.sensors.target_detected_raw if qsm.sensors else None,
+        value_fn=lambda qsm: (
+            normalize_float(qsm.sensors.target_detected_raw) if qsm.sensors else None
+        ),
         entity_registry_enabled_default=False,
     ),
     QSMSensorDescription(
         key="als_illuminance",
-        name="Illuminance",
+        translation_key="illuminance",
         device_class=SensorDeviceClass.ILLUMINANCE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=LIGHT_LUX,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda qsm: qsm.sensors.als_illuminance_raw if qsm.sensors else None,
+        value_fn=lambda qsm: (
+            normalize_float(qsm.sensors.als_illuminance_raw) if qsm.sensors else None
+        ),
         entity_registry_enabled_default=False,
     ),
     QSMSensorDescription(
         key="local_comms_health",
-        name="Local Comms Health",
+        translation_key="local_comms_health",
+        device_class=SensorDeviceClass.ENUM,
+        options=_COMMS_HEALTH_OPTIONS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda qsm: _local_comms_health_name(qsm.local_comms_health),
         entity_registry_enabled_default=False,
@@ -365,26 +401,26 @@ class ODUSensorDescription(SensorEntityDescription):
 ODU_SENSOR_DESCRIPTIONS: tuple[ODUSensorDescription, ...] = (
     ODUSensorDescription(
         key="ambient_temperature",
-        name="Outdoor Temperature",
+        translation_key="outdoor_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         # Primary sensor - no category
         value_fn=lambda odu: (
-            _normalize_temperature(odu.performance_data.ambient_temperature_c)
+            normalize_float(odu.performance_data.ambient_temperature_c)
             if odu.performance_data
             else None
         ),
     ),
     ODUSensorDescription(
         key="coil_temperature",
-        name="Coil Temperature",
+        translation_key="coil_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda odu: (
-            _normalize_temperature(odu.performance_data.coil_temperature_c)
+            normalize_float(odu.performance_data.coil_temperature_c)
             if odu.performance_data
             else None
         ),
@@ -392,13 +428,13 @@ ODU_SENSOR_DESCRIPTIONS: tuple[ODUSensorDescription, ...] = (
     ),
     ODUSensorDescription(
         key="exhaust_temperature",
-        name="Exhaust Temperature",
+        translation_key="exhaust_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda odu: (
-            _normalize_temperature(odu.performance_data.exhaust_temperature_c)
+            normalize_float(odu.performance_data.exhaust_temperature_c)
             if odu.performance_data
             else None
         ),
@@ -406,13 +442,13 @@ ODU_SENSOR_DESCRIPTIONS: tuple[ODUSensorDescription, ...] = (
     ),
     ODUSensorDescription(
         key="compressor_frequency",
-        name="Compressor Frequency",
+        translation_key="compressor_frequency",
         device_class=SensorDeviceClass.FREQUENCY,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfFrequency.HERTZ,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda odu: (
-            odu.performance_data.compressor_frequency_hz
+            normalize_float(odu.performance_data.compressor_frequency_hz)
             if odu.performance_data
             else None
         ),
@@ -420,25 +456,29 @@ ODU_SENSOR_DESCRIPTIONS: tuple[ODUSensorDescription, ...] = (
     ),
     ODUSensorDescription(
         key="high_pressure",
-        name="High-Side Pressure",
+        translation_key="high_side_pressure",
         device_class=SensorDeviceClass.PRESSURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPressure.KPA,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda odu: (
-            odu.performance_data.high_pressure_kpa if odu.performance_data else None
+            normalize_float(odu.performance_data.high_pressure_kpa)
+            if odu.performance_data
+            else None
         ),
         entity_registry_enabled_default=False,
     ),
     ODUSensorDescription(
         key="low_pressure",
-        name="Low-Side Pressure",
+        translation_key="low_side_pressure",
         device_class=SensorDeviceClass.PRESSURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPressure.KPA,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda odu: (
-            odu.performance_data.low_pressure_kpa if odu.performance_data else None
+            normalize_float(odu.performance_data.low_pressure_kpa)
+            if odu.performance_data
+            else None
         ),
         entity_registry_enabled_default=False,
     ),
@@ -457,67 +497,69 @@ class ControllerSensorDescription(SensorEntityDescription):
 CONTROLLER_SENSOR_DESCRIPTIONS: tuple[ControllerSensorDescription, ...] = (
     ControllerSensorDescription(
         key="ambient_temperature",
-        name="Temperature",
+        translation_key="temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         # Primary sensor - no category
-        value_fn=lambda ctrl: _normalize_temperature(ctrl.ambient_temperature_c),
+        value_fn=lambda ctrl: normalize_float(ctrl.ambient_temperature_c),
     ),
     ControllerSensorDescription(
         key="pcb_temperature_a",
-        name="PCB Temperature A",
+        translation_key="pcb_temperature_a",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda ctrl: _normalize_temperature(ctrl.pcb_temperature_a_c),
+        value_fn=lambda ctrl: normalize_float(ctrl.pcb_temperature_a_c),
         entity_registry_enabled_default=False,
     ),
     ControllerSensorDescription(
         key="pcb_temperature_b",
-        name="PCB Temperature B",
+        translation_key="pcb_temperature_b",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda ctrl: _normalize_temperature(ctrl.pcb_temperature_b_c),
+        value_fn=lambda ctrl: normalize_float(ctrl.pcb_temperature_b_c),
         entity_registry_enabled_default=False,
     ),
     ControllerSensorDescription(
         key="calibrated_ambient_temperature",
-        name="Calibrated Ambient",
+        translation_key="calibrated_ambient",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda ctrl: _normalize_temperature(ctrl.calibrated_ambient_c),
+        value_fn=lambda ctrl: normalize_float(ctrl.calibrated_ambient_c),
         entity_registry_enabled_default=False,
     ),
     ControllerSensorDescription(
         key="wifi_signal",
-        name="WiFi Signal",
+        translation_key="wifi_signal",
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement="dBm",
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda ctrl: ctrl.wifi_signal_dbm,
+        value_fn=lambda ctrl: normalize_float(ctrl.wifi_signal_dbm),
         entity_registry_enabled_default=False,
     ),
     ControllerSensorDescription(
         key="wifi_frequency",
-        name="WiFi Frequency",
+        translation_key="wifi_frequency",
         device_class=SensorDeviceClass.FREQUENCY,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfFrequency.MEGAHERTZ,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda ctrl: ctrl.wifi_freq_mhz,
+        value_fn=lambda ctrl: normalize_float(ctrl.wifi_freq_mhz),
         available_fn=lambda ctrl: ctrl.is_online and ctrl.wifi_freq_mhz is not None,
         entity_registry_enabled_default=False,
     ),
     ControllerSensorDescription(
         key="local_comms_health",
-        name="Local Comms Health",
+        translation_key="local_comms_health",
+        device_class=SensorDeviceClass.ENUM,
+        options=_COMMS_HEALTH_OPTIONS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda ctrl: _local_comms_health_name(ctrl.local_comms_health),
         entity_registry_enabled_default=False,
@@ -536,39 +578,39 @@ class RemoteSensorDescription(SensorEntityDescription):
 REMOTE_SENSOR_DESCRIPTIONS: tuple[RemoteSensorDescription, ...] = (
     RemoteSensorDescription(
         key="temperature",
-        name="Temperature",
+        translation_key="temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         # Primary sensor - no category
-        value_fn=lambda rs: _normalize_temperature(rs.ambient_temperature_c),
+        value_fn=lambda rs: normalize_float(rs.ambient_temperature_c),
     ),
     RemoteSensorDescription(
         key="humidity",
-        name="Humidity",
+        translation_key="humidity",
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         # Primary sensor - no category
-        value_fn=lambda rs: rs.humidity_percent,
+        value_fn=lambda rs: normalize_float(rs.humidity_percent),
     ),
     RemoteSensorDescription(
         key="battery",
-        name="Battery",
+        translation_key="battery",
         device_class=SensorDeviceClass.BATTERY,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda rs: rs.battery_level_percent,
+        value_fn=lambda rs: normalize_float(rs.battery_level_percent),
     ),
     RemoteSensorDescription(
         key="signal_strength",
-        name="Signal Strength",
+        translation_key="signal_strength",
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement="dBm",
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda rs: rs.signal_level_dbm,
+        value_fn=lambda rs: normalize_float(rs.signal_level_dbm),
         entity_registry_enabled_default=False,
     ),
 )
@@ -585,39 +627,39 @@ class ControllerRemoteSensorDescription(SensorEntityDescription):
 CONTROLLER_REMOTE_SENSOR_DESCRIPTIONS: tuple[ControllerRemoteSensorDescription, ...] = (
     ControllerRemoteSensorDescription(
         key="temperature",
-        name="Temperature",
+        translation_key="temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         # Primary sensor - no category
-        value_fn=lambda crs: _normalize_temperature(crs.ambient_temperature_c),
+        value_fn=lambda crs: normalize_float(crs.ambient_temperature_c),
     ),
     ControllerRemoteSensorDescription(
         key="humidity",
-        name="Humidity",
+        translation_key="humidity",
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         # Primary sensor - no category
-        value_fn=lambda crs: crs.humidity_percent,
+        value_fn=lambda crs: normalize_float(crs.humidity_percent),
     ),
     ControllerRemoteSensorDescription(
         key="battery",
-        name="Battery",
+        translation_key="battery",
         device_class=SensorDeviceClass.BATTERY,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda crs: crs.battery_level_percent,
+        value_fn=lambda crs: normalize_float(crs.battery_level_percent),
     ),
     ControllerRemoteSensorDescription(
         key="signal_strength",
-        name="Signal Strength",
+        translation_key="signal_strength",
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement="dBm",
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda crs: crs.signal_level_dbm,
+        value_fn=lambda crs: normalize_float(crs.signal_level_dbm),
         entity_registry_enabled_default=False,
     ),
 )
@@ -633,79 +675,88 @@ async def async_setup_entry(
 ) -> None:
     """Set up sensor entities from a config entry."""
     coordinator = entry.runtime_data
-    snapshot = coordinator.data
-    entities: list[SensorEntity] = []
 
-    # Index the first IDU per space so space-level sensors have a device to live on.
-    first_idu_for_space: dict[str, str] = {}
-    for idu in snapshot.indoor_units:
-        if idu.space_id and idu.space_id not in first_idu_for_space:
-            first_idu_for_space[idu.space_id] = idu.id
+    def _build_new(known: set[str]) -> list[tuple[str, SensorEntity]]:
+        snapshot = coordinator.data
+        first_idu = coordinator.first_idu_id_by_space_id
+        new: list[tuple[str, SensorEntity]] = []
 
-    # Space temperature sensors — attached to the first IDU in each space
-    for space in snapshot.spaces:
-        if not space.is_room:
-            continue
-        idu_id = first_idu_for_space.get(space.id)
-        if idu_id is None:
-            continue
-        for space_desc in SPACE_SENSOR_DESCRIPTIONS:
-            entities.append(QuiltSpaceSensor(coordinator, space.id, idu_id, space_desc))
+        # Space temperature + energy sensors — on the first IDU in each space
+        for space in snapshot.spaces:
+            if not space.is_room:
+                continue
+            idu_id = first_idu.get(space.id)
+            if idu_id is None or f"space_{space.id}" in known:
+                continue
+            key = f"space_{space.id}"
+            for space_desc in SPACE_SENSOR_DESCRIPTIONS:
+                new.append(
+                    (key, QuiltSpaceSensor(coordinator, space.id, idu_id, space_desc))
+                )
+            new.append((key, QuiltEnergySensor(coordinator, space.id, idu_id)))
 
-    # Energy sensors — one per room space, on the IDU device
-    for space in snapshot.spaces:
-        if not space.is_room:
-            continue
-        idu_id = first_idu_for_space.get(space.id)
-        if idu_id is None:
-            continue
-        entities.append(QuiltEnergySensor(coordinator, space.id, idu_id))
+        # QSM/IDU sensors
+        for idu in snapshot.indoor_units:
+            key = f"idu_{idu.id}"
+            if key in known:
+                continue
+            for idu_desc in IDU_SENSOR_DESCRIPTIONS:
+                new.append((key, QuiltIDUSensor(coordinator, idu.id, idu_desc)))
+            if idu.qsm_id:
+                for qsm_desc in QSM_SENSOR_DESCRIPTIONS:
+                    new.append((key, QuiltQSMSensor(coordinator, idu.id, qsm_desc)))
 
-    # QSM/IDU sensors
-    for idu in snapshot.indoor_units:
-        for idu_desc in IDU_SENSOR_DESCRIPTIONS:
-            entities.append(QuiltIDUSensor(coordinator, idu.id, idu_desc))
-        if idu.qsm_id:
-            for qsm_desc in QSM_SENSOR_DESCRIPTIONS:
-                entities.append(QuiltQSMSensor(coordinator, idu.id, qsm_desc))
+        # OutdoorUnit sensors — one set per ODU, linked via the first IDU that
+        # references it. An ODU can serve multiple IDUs (multi-zone), so
+        # iterating over IDUs would create duplicate sensor sets.
+        odu_to_first_idu: dict[str, str] = {}
+        for idu in snapshot.indoor_units:
+            if idu.outdoor_unit_id and idu.outdoor_unit_id not in odu_to_first_idu:
+                odu_to_first_idu[idu.outdoor_unit_id] = idu.id
+        for odu_id, idu_id in odu_to_first_idu.items():
+            key = f"odu_{odu_id}"
+            if key in known or odu_id not in coordinator.odu_by_id:
+                continue
+            for odu_desc in ODU_SENSOR_DESCRIPTIONS:
+                new.append((key, QuiltODUSensor(coordinator, odu_id, idu_id, odu_desc)))
 
-    # OutdoorUnit sensors — one set per ODU, linked via the first IDU that
-    # references it.
-    # An ODU can serve multiple IDUs (multi-zone), so iterating over IDUs would create
-    # duplicate sensor sets for the same ODU device.
-    odu_to_first_idu: dict[str, str] = {}
-    for idu in snapshot.indoor_units:
-        if idu.outdoor_unit_id and idu.outdoor_unit_id not in odu_to_first_idu:
-            odu_to_first_idu[idu.outdoor_unit_id] = idu.id
-    for odu_id, idu_id in odu_to_first_idu.items():
-        odu = coordinator.odu_by_id.get(odu_id)
-        if not odu:
-            continue
-        for odu_desc in ODU_SENSOR_DESCRIPTIONS:
-            entities.append(QuiltODUSensor(coordinator, odu_id, idu_id, odu_desc))
+        # Controller (Dial) sensors
+        for ctrl in snapshot.controllers:
+            key = f"ctrl_{ctrl.id}"
+            if key in known:
+                continue
+            for ctrl_desc in CONTROLLER_SENSOR_DESCRIPTIONS:
+                new.append(
+                    (key, QuiltControllerSensor(coordinator, ctrl.id, ctrl_desc))
+                )
 
-    # Controller (Dial) sensors
-    for ctrl in snapshot.controllers:
-        for ctrl_desc in CONTROLLER_SENSOR_DESCRIPTIONS:
-            entities.append(QuiltControllerSensor(coordinator, ctrl.id, ctrl_desc))
+        # RemoteSensor sensors (IDU-paired wireless sensors)
+        for rs in snapshot.remote_sensors:
+            key = f"rs_{rs.id}"
+            if key in known:
+                continue
+            for rs_desc in REMOTE_SENSOR_DESCRIPTIONS:
+                new.append((key, QuiltRemoteSensor(coordinator, rs.id, rs_desc)))
 
-    # RemoteSensor sensors (IDU-paired wireless sensors)
-    for rs in snapshot.remote_sensors:
-        for rs_desc in REMOTE_SENSOR_DESCRIPTIONS:
-            entities.append(QuiltRemoteSensor(coordinator, rs.id, rs_desc))
+        # ControllerRemoteSensor sensors (Dial-paired wireless sensors)
+        for crs in snapshot.controller_remote_sensors:
+            key = f"crs_{crs.id}"
+            if key in known:
+                continue
+            for crs_desc in CONTROLLER_REMOTE_SENSOR_DESCRIPTIONS:
+                new.append(
+                    (key, QuiltControllerRemoteSensor(coordinator, crs.id, crs_desc))
+                )
 
-    # ControllerRemoteSensor sensors (Dial-paired wireless sensors)
-    for crs in snapshot.controller_remote_sensors:
-        for crs_desc in CONTROLLER_REMOTE_SENSOR_DESCRIPTIONS:
-            entities.append(QuiltControllerRemoteSensor(coordinator, crs.id, crs_desc))
+        return new
 
-    async_add_entities(entities)
+    async_setup_dynamic_entities(entry, coordinator, async_add_entities, _build_new)
 
 
 # ── Sensor entity classes ─────────────────────────────────────────────────────
 
 
-class QuiltSpaceSensor(QuiltEntity, SensorEntity):
+class QuiltSpaceSensor(QuiltIDUEntity, SensorEntity):
     """Space temperature sensor, presented on the first IDU in the space."""
 
     entity_description: SpaceSensorDescription
@@ -718,10 +769,9 @@ class QuiltSpaceSensor(QuiltEntity, SensorEntity):
         description: SpaceSensorDescription,
     ) -> None:
         """Initialize the space sensor entity."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, idu_id)
         self.entity_description = description
         self._space_id: str = space_id
-        self._idu_id: str = idu_id
         self._attr_unique_id: str = f"quilt_space_{space_id}_{description.key}"
 
     @property
@@ -730,10 +780,8 @@ class QuiltSpaceSensor(QuiltEntity, SensorEntity):
 
     @property
     @override
-    def device_info(self) -> DeviceInfo:
-        idu = self.coordinator.idu_by_id[self._idu_id]
-        space = self._space
-        return idu_device_info(idu, space)
+    def available(self) -> bool:
+        return super().available and self._space_id in self.coordinator.spaces_by_id
 
     @property
     @override
@@ -741,7 +789,7 @@ class QuiltSpaceSensor(QuiltEntity, SensorEntity):
         return self.entity_description.value_fn(self._space)
 
 
-class QuiltIDUSensor(QuiltEntity, SensorEntity):
+class QuiltIDUSensor(QuiltIDUEntity, SensorEntity):
     """Sensor entity for a Quilt indoor unit."""
 
     entity_description: IDUSensorDescription
@@ -753,28 +801,13 @@ class QuiltIDUSensor(QuiltEntity, SensorEntity):
         description: IDUSensorDescription,
     ) -> None:
         """Initialize the indoor unit sensor entity."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, idu_id)
         self.entity_description = description
-        self._idu_id: str = idu_id
         self._attr_unique_id: str = f"quilt_idu_{idu_id}_{description.key}"
 
-    @property
-    def _idu(self) -> IndoorUnit:
-        return self.coordinator.idu_by_id[self._idu_id]
-
-    @property
     @override
-    def device_info(self) -> DeviceInfo:
-        idu = self._idu
-        space = (
-            self.coordinator.spaces_by_id.get(idu.space_id) if idu.space_id else None
-        )
-        return idu_device_info(idu, space)
-
-    @property
-    @override
-    def available(self) -> bool:
-        return super().available and self.entity_description.available_fn(self._idu)
+    def _model_available(self, idu: IndoorUnit) -> bool:
+        return self.entity_description.available_fn(idu)
 
     @property
     @override
@@ -814,7 +847,12 @@ class QuiltODUSensor(QuiltEntity, SensorEntity):
     @property
     @override
     def available(self) -> bool:
-        return super().available and self.entity_description.available_fn(self._odu)
+        odu = self.coordinator.odu_by_id.get(self._odu_id)
+        return (
+            super().available
+            and odu is not None
+            and self.entity_description.available_fn(odu)
+        )
 
     @property
     @override
@@ -822,7 +860,7 @@ class QuiltODUSensor(QuiltEntity, SensorEntity):
         return self.entity_description.value_fn(self._odu)
 
 
-class QuiltControllerSensor(QuiltEntity, SensorEntity):
+class QuiltControllerSensor(QuiltControllerEntity, SensorEntity):
     """Sensor entity for a Quilt Controller (Dial)."""
 
     entity_description: ControllerSensorDescription
@@ -834,30 +872,13 @@ class QuiltControllerSensor(QuiltEntity, SensorEntity):
         description: ControllerSensorDescription,
     ) -> None:
         """Initialize the controller sensor entity."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, ctrl_id)
         self.entity_description = description
-        self._ctrl_id: str = ctrl_id
         self._attr_unique_id: str = f"quilt_ctrl_{ctrl_id}_{description.key}"
 
-    @property
-    def _ctrl(self) -> Controller:
-        return self.coordinator.ctrl_by_id[self._ctrl_id]
-
-    @property
     @override
-    def device_info(self) -> DeviceInfo:
-        ctrl = self._ctrl
-        idu = (
-            self.coordinator.idu_by_space_id.get(ctrl.space_id)
-            if ctrl.space_id
-            else None
-        )
-        return controller_device_info(ctrl, idu)
-
-    @property
-    @override
-    def available(self) -> bool:
-        return super().available and self.entity_description.available_fn(self._ctrl)
+    def _model_available(self, ctrl: Controller) -> bool:
+        return self.entity_description.available_fn(ctrl)
 
     @property
     @override
@@ -865,7 +886,7 @@ class QuiltControllerSensor(QuiltEntity, SensorEntity):
         return self.entity_description.value_fn(self._ctrl)
 
 
-class QuiltQSMSensor(QuiltEntity, SensorEntity):
+class QuiltQSMSensor(QuiltIDUEntity, SensorEntity):
     """Sensor entity for QSM radar/ALS data, presented on the IDU device."""
 
     entity_description: QSMSensorDescription
@@ -877,14 +898,9 @@ class QuiltQSMSensor(QuiltEntity, SensorEntity):
         description: QSMSensorDescription,
     ) -> None:
         """Initialize the QSM sensor entity."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, idu_id)
         self.entity_description = description
-        self._idu_id: str = idu_id
         self._attr_unique_id: str = f"quilt_qsm_{idu_id}_{description.key}"
-
-    @property
-    def _idu(self) -> IndoorUnit:
-        return self.coordinator.idu_by_id[self._idu_id]
 
     @property
     def _qsm(self) -> QuiltSmartModule | None:
@@ -893,17 +909,8 @@ class QuiltQSMSensor(QuiltEntity, SensorEntity):
 
     @property
     @override
-    def device_info(self) -> DeviceInfo:
-        idu = self._idu
-        space = (
-            self.coordinator.spaces_by_id.get(idu.space_id) if idu.space_id else None
-        )
-        return idu_device_info(idu, space)
-
-    @property
-    @override
     def available(self) -> bool:
-        return super().available and self._idu.is_online and self._qsm is not None
+        return super().available and self._qsm is not None
 
     @property
     @override
@@ -932,6 +939,11 @@ class QuiltRemoteSensor(QuiltEntity, SensorEntity):
     @property
     def _rs(self) -> RemoteSensor:
         return self.coordinator.remote_sensor_by_id[self._rs_id]
+
+    @property
+    @override
+    def available(self) -> bool:
+        return super().available and self._rs_id in self.coordinator.remote_sensor_by_id
 
     @property
     @override
@@ -969,6 +981,14 @@ class QuiltControllerRemoteSensor(QuiltEntity, SensorEntity):
 
     @property
     @override
+    def available(self) -> bool:
+        return (
+            super().available
+            and self._crs_id in self.coordinator.ctrl_remote_sensor_by_id
+        )
+
+    @property
+    @override
     def device_info(self) -> DeviceInfo:
         crs = self._crs
         ctrl = self.coordinator.ctrl_by_id.get(crs.controller_id)
@@ -980,7 +1000,7 @@ class QuiltControllerRemoteSensor(QuiltEntity, SensorEntity):
         return self.entity_description.value_fn(self._crs)
 
 
-class QuiltEnergySensor(QuiltEntity, SensorEntity):
+class QuiltEnergySensor(QuiltIDUEntity, SensorEntity):
     """Today's energy consumption for a Quilt space (room)."""
 
     _attr_device_class: SensorDeviceClass = SensorDeviceClass.ENERGY
@@ -996,17 +1016,15 @@ class QuiltEnergySensor(QuiltEntity, SensorEntity):
         idu_id: str,
     ) -> None:
         """Initialize the energy sensor entity."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, idu_id)
         self._space_id: str = space_id
-        self._idu_id: str = idu_id
         self._attr_unique_id: str = f"quilt_space_{space_id}_energy_today"
 
-    @property
     @override
-    def device_info(self) -> DeviceInfo:
-        idu = self.coordinator.idu_by_id[self._idu_id]
-        space = self.coordinator.spaces_by_id.get(self._space_id)
-        return idu_device_info(idu, space)
+    def _model_available(self, idu: IndoorUnit) -> bool:
+        # Energy data comes from the cloud API and remains valid while the
+        # IDU itself is offline.
+        return True
 
     @property
     @override

@@ -155,35 +155,40 @@ default to reduce noise; enable them individually in the HA entity registry.
 | Entity | Platform | Default |
 |---|---|---|
 | Climate | `climate` | Enabled |
-| Space Temperature | `sensor` | Enabled |
+| Space temperature | `sensor` | Enabled |
 
 The climate entity supports the following HVAC modes: **Off**, **Cool**, **Heat**,
-**Heat/Cool** (auto), **Fan only**. It also exposes Quilt **comfort settings** as HA
-preset modes — selecting a preset activates that comfort profile on the space.
+**Heat/Cool** (auto), **Fan only**, **Dry**. It also exposes Quilt **comfort settings**
+as HA preset modes — selecting a preset activates that comfort profile on the space.
 
 ### Per Indoor Unit (IDU)
 
+The **fan** entity models Quilt's *Auto* fan mode as "off": when the fan entity is off,
+the HVAC system controls the fan speed automatically. Turning the fan on engages an
+explicit speed (Quiet/Low/Medium/High/Blast, also available as preset modes), and
+turning it off returns the fan to automatic control.
+
 | Entity | Platform | Default |
 |---|---|---|
-| Fan Speed | `fan` | Enabled |
-| LED Light | `light` | Enabled |
-| Louver Mode | `select` | Enabled |
-| Louver Angle | `select` | Enabled |
+| Fan | `fan` | Enabled |
+| LED | `light` | Enabled |
+| Louver mode | `select` | Enabled |
+| Louver angle | `select` | Enabled |
 | Temperature (IDU sensor) | `sensor` | Enabled |
 | Humidity | `sensor` | Enabled |
-| Fan Speed RPM | `sensor` | Enabled |
+| Fan speed | `sensor` | Enabled |
 | Motion | `binary_sensor` | Enabled |
 | Presence | `binary_sensor` | Enabled |
 | Occupied | `binary_sensor` | Enabled |
-| Inlet Temperature | `sensor` | Disabled |
-| Outlet Temperature | `sensor` | Disabled |
-| Presence Level | `sensor` | Disabled |
-| HVAC Capacity | `sensor` | Disabled |
-| HVAC Power | `sensor` | Disabled |
-| COP | `sensor` | Disabled |
-| Calibrated Temperature | `sensor` | Disabled |
-| Motion Signal (radar) | `sensor` | Disabled |
-| Presence Signal (radar) | `sensor` | Disabled |
+| Inlet temperature | `sensor` | Disabled |
+| Outlet temperature | `sensor` | Disabled |
+| Presence level | `sensor` | Disabled |
+| HVAC capacity | `sensor` | Disabled |
+| HVAC power | `sensor` | Disabled |
+| Coefficient of performance | `sensor` | Disabled |
+| Calibrated temperature | `sensor` | Disabled |
+| Motion signal (radar) | `sensor` | Disabled |
+| Presence signal (radar) | `sensor` | Disabled |
 | Illuminance | `sensor` | Disabled |
 | Online | `binary_sensor` | Disabled |
 
@@ -191,10 +196,10 @@ preset modes — selecting a preset activates that comfort profile on the space.
 
 | Entity | Platform | Default |
 |---|---|---|
-| Outdoor Temperature | `sensor` | Enabled |
-| Compressor Frequency | `sensor` | Disabled |
-| High-Side Pressure | `sensor` | Disabled |
-| Low-Side Pressure | `sensor` | Disabled |
+| Outdoor temperature | `sensor` | Enabled |
+| Compressor frequency | `sensor` | Disabled |
+| High-side pressure | `sensor` | Disabled |
+| Low-side pressure | `sensor` | Disabled |
 
 ### Per Controller (Quilt Dial)
 
@@ -202,7 +207,7 @@ preset modes — selecting a preset activates that comfort profile on the space.
 |---|---|---|
 | Temperature | `sensor` | Enabled |
 | Online | `binary_sensor` | Disabled |
-| WiFi Signal | `sensor` | Disabled |
+| Wi-Fi signal | `sensor` | Disabled |
 
 ## Troubleshooting
 
@@ -241,6 +246,16 @@ and include:
 - Home Assistant version
 - Integration version
 - Relevant lines from `home-assistant.log` with debug logging enabled
+
+## Removing the integration
+
+1. In Home Assistant go to **Settings → Devices & services → Quilt**.
+2. Open the entry menu (⋮) and select **Delete**.
+3. If no other Quilt entry uses the same account, the cached authentication tokens
+   are removed from HA storage automatically.
+
+To fully sign the host out of your Quilt account, also revoke the session from the
+Quilt mobile app if desired.
 
 ## Contributing
 

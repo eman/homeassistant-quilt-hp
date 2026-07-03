@@ -4,8 +4,10 @@
   "codeowners": ["@eman"],
   "config_flow": true,
   "documentation": "https://github.com/eman/homeassistant-quilt-hp",
+  "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/eman/homeassistant-quilt-hp/issues",
+  "loggers": ["quilt_hp"],
   "requirements": ["quilt-hp-python>=0.5.4"],
   "version": "0.5.3"
 }

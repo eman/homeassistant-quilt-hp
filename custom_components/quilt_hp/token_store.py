@@ -59,3 +59,15 @@ class HATokenStore:
                 "expires_at": tokens.expires_at,
             }
             await self._store.async_save(data)
+
+    async def delete(self, email: str) -> None:
+        """Remove any cached tokens for *email*."""
+        async with self._write_lock:
+            data: dict[str, Any] = await self._store.async_load() or {}
+            if email not in data:
+                return
+            del data[email]
+            if data:
+                await self._store.async_save(data)
+            else:
+                await self._store.async_remove()

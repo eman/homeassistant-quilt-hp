@@ -94,3 +94,22 @@ async def test_diagnostics_empty(hass) -> None:
     assert diag_data["indoor_units"] == []
     assert diag_data["outdoor_units"] == []
     assert diag_data["controllers"] == []
+
+
+async def test_diagnostics_reports_stream_death_count(hass) -> None:
+    """Diagnostics must expose the renamed stream_death_count key."""
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    coordinator.stream_death_count = 3
+    coordinator.is_streaming = True
+
+    entry = MagicMock()
+    entry.runtime_data = coordinator
+    entry.version = 1
+    entry.domain = "quilt_hp"
+
+    diag_data = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diag_data["coordinator"]["stream_death_count"] == 3
+    assert diag_data["coordinator"]["is_streaming"] is True
+    assert diag_data["coordinator"]["last_update_success"] is True
+    assert "stream_error_count" not in diag_data["coordinator"]

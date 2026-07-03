@@ -16,19 +16,24 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from quilt_hp.models.enums import HVACMode as QHVACMode, HVACState as QHVACState
+from quilt_hp.models.comfort import ComfortSetting
+from quilt_hp.models.enums import (
+    ComfortSettingType,
+    HVACMode as QHVACMode,
+    HVACState as QHVACState,
+)
 from quilt_hp.models.space import Space
-from quilt_hp.models.system import ComfortSetting
 
 from .coordinator import QuiltCoordinator
+from .entity import QuiltEntity, async_setup_dynamic_entities, idu_device_info
+from .utils import normalize_float
 
 if TYPE_CHECKING:
     from . import QuiltConfigEntry
-from .entity import QuiltEntity, idu_device_info
-from .utils import normalize_temperature
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,19 +86,16 @@ async def async_setup_entry(
 ) -> None:
     """Set up climate entities from a config entry."""
     coordinator = entry.runtime_data
-    snapshot = coordinator.data
 
-    first_idu_for_space: dict[str, str] = {}
-    for idu in snapshot.indoor_units:
-        if idu.space_id and idu.space_id not in first_idu_for_space:
-            first_idu_for_space[idu.space_id] = idu.id
+    def _build_new(known: set[str]) -> list[tuple[str, QuiltClimateEntity]]:
+        first_idu = coordinator.first_idu_id_by_space_id
+        return [
+            (space.id, QuiltClimateEntity(coordinator, space.id, first_idu[space.id]))
+            for space in coordinator.data.spaces
+            if space.is_room and space.id in first_idu and space.id not in known
+        ]
 
-    entities = [
-        QuiltClimateEntity(coordinator, space.id, first_idu_for_space[space.id])
-        for space in snapshot.spaces
-        if space.is_room and space.id in first_idu_for_space
-    ]
-    async_add_entities(entities)
+    async_setup_dynamic_entities(entry, coordinator, async_add_entities, _build_new)
 
 
 class QuiltClimateEntity(QuiltEntity, ClimateEntity):
@@ -104,12 +106,14 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         | ClimateEntityFeature.PRESET_MODE
+        | ClimateEntityFeature.TURN_ON
+        | ClimateEntityFeature.TURN_OFF
     )
-    _attr_translation_key: str = "climate"
     # Quilt supports setpoints from 10 °C (safety heating floor) to 32 °C.
     _attr_min_temp: float = 10.0
     _attr_max_temp: float = 32.0
     _attr_target_temperature_step: float = 0.5
+    _attr_name: str | None = None  # use device name as entity name
 
     def __init__(
         self, coordinator: QuiltCoordinator, space_id: str, idu_id: str
@@ -119,7 +123,6 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
         self._space_id: str = space_id
         self._idu_id: str = idu_id
         self._attr_unique_id: str = f"quilt_space_climate_{space_id}"
-        self._attr_name: str | None = None  # use device name as entity name
         self._attr_hvac_modes: list[HVACMode] = list(_HA_TO_Q.keys())
 
     @property
@@ -128,9 +131,20 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
 
     @property
     @override
+    def available(self) -> bool:
+        idu = self.coordinator.idu_by_id.get(self._idu_id)
+        return (
+            super().available
+            and self._space_id in self.coordinator.spaces_by_id
+            and idu is not None
+            and idu.is_online
+        )
+
+    @property
+    @override
     def device_info(self) -> DeviceInfo:
         idu = self.coordinator.idu_by_id[self._idu_id]
-        space = self._space
+        space = self.coordinator.spaces_by_id.get(self._space_id)
         return idu_device_info(idu, space)
 
     @property
@@ -155,30 +169,12 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
         return self.hvac_mode in (HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL)
 
     @property
-    def _active_comfort_setting(self) -> Any | None:
-        """Return the active ComfortSetting object, or None if unavailable.
-
-        The following getattr() shims guard against optional model attributes
-        that may or may not be present depending on the quilt-hp-python version.
-        If the library is updated to always expose these fields, the shims can
-        be removed.
-        """
-        # Prefer the explicit "or_none" variant; fall back to the older field.
-        comfort_setting_id_or_none = getattr(
-            self._space.controls, "comfort_setting_id_or_none", None
-        )
-        comfort_setting_id = (
-            comfort_setting_id_or_none
-            if isinstance(comfort_setting_id_or_none, str)
-            else self._space.controls.comfort_setting_id or None
-        )
-        if comfort_setting_id is None:
+    def _active_comfort_setting(self) -> ComfortSetting | None:
+        """Return the active ComfortSetting object, or None if unavailable."""
+        cs_id = self._space.controls.comfort_setting_id_or_none
+        if cs_id is None:
             return None
-        # comfort_settings may not exist on older snapshots.
-        comfort_settings = getattr(self.coordinator.data, "comfort_settings", ())
-        return next(
-            (cs for cs in comfort_settings if cs.id == comfort_setting_id), None
-        )
+        return self.coordinator.cs_by_id.get(cs_id)
 
     @property
     def _effective_setpoints(self) -> tuple[float | None, float | None]:
@@ -188,54 +184,39 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
         indicate "not configured", we prefer the active comfort setting's
         setpoints instead.  If those are also unavailable we fall back to the
         current state setpoint.
-
-        The has_standby_sentinel_setpoints / has_placeholder_setpoints /
-        has_missing_setpoint flags are newer API additions guarded by getattr.
         """
-        heat = normalize_temperature(self._space.controls.heating_setpoint_c)
-        cool = normalize_temperature(self._space.controls.cooling_setpoint_c)
+        heat = normalize_float(self._space.controls.heating_setpoint_c)
+        cool = normalize_float(self._space.controls.cooling_setpoint_c)
 
-        # Shim: older snapshots lack this flag; treat absence as "no sentinel".
-        has_sentinel = getattr(
-            self._space.controls, "has_standby_sentinel_setpoints", False
-        )
-        if not isinstance(has_sentinel, bool) or not has_sentinel:
+        if not self._space.controls.has_standby_sentinel_setpoints:
             return heat, cool
 
         comfort_setting = self._active_comfort_setting
-        if comfort_setting is not None and not getattr(
-            comfort_setting, "has_placeholder_setpoints", False
+        if (
+            comfort_setting is not None
+            and not comfort_setting.has_placeholder_setpoints
         ):
-            heat = normalize_temperature(comfort_setting.heating_setpoint_c)
-            cool = normalize_temperature(comfort_setting.cooling_setpoint_c)
+            heat = normalize_float(comfort_setting.heating_setpoint_c)
+            cool = normalize_float(comfort_setting.cooling_setpoint_c)
             return heat, cool
 
-        # Shim: fall back to the current state setpoint when the comfort
-        # setting is also a placeholder.
-        missing_setpoint = getattr(self._space.state, "has_missing_setpoint", False)
-        if not missing_setpoint:
-            setpoint = normalize_temperature(self._space.state.setpoint_c)
-            if (
-                self._space.controls.hvac_mode == QHVACMode.HEAT
-                and setpoint is not None
-            ):
-                heat = setpoint
-            if (
-                self._space.controls.hvac_mode == QHVACMode.COOL
-                and setpoint is not None
-            ):
-                cool = setpoint
+        # Fall back to the current state setpoint when the comfort setting
+        # is also a placeholder.
+        if not self._space.state.has_missing_setpoint:
+            setpoint = normalize_float(self._space.state.setpoint_c)
+            if setpoint is not None:
+                if self._space.controls.hvac_mode == QHVACMode.HEAT:
+                    heat = setpoint
+                elif self._space.controls.hvac_mode == QHVACMode.COOL:
+                    cool = setpoint
         return heat, cool
 
     @property
     @override
     def current_temperature(self) -> float | None:
-        missing_ambient = getattr(
-            self._space.state, "has_missing_ambient_temperature", False
-        )
-        if missing_ambient:
+        if self._space.state.has_missing_ambient_temperature:
             return None
-        return normalize_temperature(self._space.state.ambient_temperature_c)
+        return normalize_float(self._space.state.ambient_temperature_c)
 
     @property
     @override
@@ -299,7 +280,7 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
         return [
             cs
             for cs in self.coordinator.cs_by_space_id.get(self._space_id, [])
-            if cs.type.value != 0  # exclude UNSPECIFIED
+            if cs.type is not ComfortSettingType.UNSPECIFIED
         ]
 
     @property
@@ -335,12 +316,9 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
             None,
         )
         if target is None:
-            _LOGGER.warning(
-                "Quilt preset %r not found for space %s — ignoring",
-                preset_mode,
-                self._space_id,
+            raise ServiceValidationError(
+                f"Unknown Quilt preset {preset_mode!r} for space {self._space_id}"
             )
-            return
 
         await self.coordinator.async_set_space(
             self._space,

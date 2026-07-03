@@ -16,7 +16,11 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from quilt_hp.models.system import Location
 
 from .coordinator import QuiltCoordinator
-from .entity import QuiltEntity, location_device_info
+from .entity import (
+    QuiltEntity,
+    async_setup_dynamic_entities,
+    location_device_info,
+)
 
 if TYPE_CHECKING:
     from . import QuiltConfigEntry
@@ -32,12 +36,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up switch entities from a config entry."""
     coordinator = entry.runtime_data
-    snapshot = coordinator.data
 
-    entities: list[SwitchEntity] = [
-        QuiltScheduleSwitch(coordinator, loc.id) for loc in snapshot.locations
-    ]
-    async_add_entities(entities)
+    def _build_new(known: set[str]) -> list[tuple[str, SwitchEntity]]:
+        return [
+            (loc.id, QuiltScheduleSwitch(coordinator, loc.id))
+            for loc in coordinator.data.locations
+            if loc.id not in known
+        ]
+
+    async_setup_dynamic_entities(entry, coordinator, async_add_entities, _build_new)
 
 
 class QuiltScheduleSwitch(QuiltEntity, SwitchEntity):
@@ -49,7 +56,6 @@ class QuiltScheduleSwitch(QuiltEntity, SwitchEntity):
 
     _attr_device_class: SwitchDeviceClass = SwitchDeviceClass.SWITCH
     _attr_translation_key: str = "schedules"
-    _attr_icon: str = "mdi:calendar-clock"
 
     def __init__(self, coordinator: QuiltCoordinator, location_id: str) -> None:
         """Initialize the schedule switch entity."""
@@ -60,6 +66,13 @@ class QuiltScheduleSwitch(QuiltEntity, SwitchEntity):
     @property
     def _location(self) -> Location:
         return self.coordinator.location_by_id[self._location_id]
+
+    @property
+    @override
+    def available(self) -> bool:
+        return (
+            super().available and self._location_id in self.coordinator.location_by_id
+        )
 
     @property
     @override
@@ -76,10 +89,12 @@ class QuiltScheduleSwitch(QuiltEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Resume all schedules."""
         await self.coordinator.async_set_schedule_execution(paused=False)
-        await self._async_refresh_if_not_streaming()
+        # Location state is not carried on the stream — always poll.
+        await self.coordinator.async_request_refresh()
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Pause all schedules."""
         await self.coordinator.async_set_schedule_execution(paused=True)
-        await self._async_refresh_if_not_streaming()
+        # Location state is not carried on the stream — always poll.
+        await self.coordinator.async_request_refresh()

@@ -1,8 +1,14 @@
-"""Base entity class for the Quilt Heat Pump integration."""
+"""Base entity classes for the Quilt Heat Pump integration."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+from typing import override
+
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from quilt_hp.models.controller import Controller
@@ -27,14 +33,37 @@ def _clean(value: str | None) -> str | None:
     return value
 
 
+def async_setup_dynamic_entities(
+    entry: ConfigEntry,
+    coordinator: QuiltCoordinator,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+    build_new: Callable[[set[str]], Iterable[tuple[str, Entity]]],
+) -> None:
+    """Add entities now and whenever new devices appear in the snapshot.
+
+    *build_new* receives the set of already-known keys and yields
+    ``(key, entity)`` pairs for models not yet represented; it is invoked
+    once at setup and again on every coordinator update so devices added
+    to the Quilt account after setup appear without a reload.
+    """
+    known: set[str] = set()
+
+    def _add_new() -> None:
+        new_entities: list[Entity] = []
+        for key, entity in build_new(known):
+            known.add(key)
+            new_entities.append(entity)
+        if new_entities:
+            async_add_entities(new_entities)
+
+    _add_new()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new))
+
+
 class QuiltEntity(CoordinatorEntity[QuiltCoordinator]):
     """Common properties for all Quilt entities."""
 
     _attr_has_entity_name: bool = True
-
-    def __init__(self, coordinator: QuiltCoordinator) -> None:
-        """Initialize the Quilt entity."""
-        super().__init__(coordinator)
 
     async def _async_refresh_if_not_streaming(self) -> None:
         """Request a coordinator poll only when the gRPC stream is not active.
@@ -45,6 +74,76 @@ class QuiltEntity(CoordinatorEntity[QuiltCoordinator]):
         """
         if not self.coordinator.is_streaming:
             await self.coordinator.async_request_refresh()
+
+
+class QuiltIDUEntity(QuiltEntity):
+    """Entity backed by an IndoorUnit, shown on the IDU device.
+
+    Provides the IDU lookup, device info, and availability handling shared
+    by the fan, light, select, sensor, and binary sensor platforms.
+    """
+
+    def __init__(self, coordinator: QuiltCoordinator, idu_id: str) -> None:
+        """Initialize the entity with its indoor unit id."""
+        super().__init__(coordinator)
+        self._idu_id: str = idu_id
+
+    @property
+    def _idu(self) -> IndoorUnit:
+        return self.coordinator.idu_by_id[self._idu_id]
+
+    def _model_available(self, idu: IndoorUnit) -> bool:
+        """Return whether the entity is available given its (present) IDU."""
+        return idu.is_online
+
+    @property
+    @override
+    def available(self) -> bool:
+        idu = self.coordinator.idu_by_id.get(self._idu_id)
+        return super().available and idu is not None and self._model_available(idu)
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        idu = self._idu
+        space = (
+            self.coordinator.spaces_by_id.get(idu.space_id) if idu.space_id else None
+        )
+        return idu_device_info(idu, space)
+
+
+class QuiltControllerEntity(QuiltEntity):
+    """Entity backed by a Controller (Dial), shown on the Dial device."""
+
+    def __init__(self, coordinator: QuiltCoordinator, ctrl_id: str) -> None:
+        """Initialize the entity with its controller id."""
+        super().__init__(coordinator)
+        self._ctrl_id: str = ctrl_id
+
+    @property
+    def _ctrl(self) -> Controller:
+        return self.coordinator.ctrl_by_id[self._ctrl_id]
+
+    def _model_available(self, ctrl: Controller) -> bool:
+        """Return whether the entity is available given its (present) controller."""
+        return ctrl.is_online
+
+    @property
+    @override
+    def available(self) -> bool:
+        ctrl = self.coordinator.ctrl_by_id.get(self._ctrl_id)
+        return super().available and ctrl is not None and self._model_available(ctrl)
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        ctrl = self._ctrl
+        idu = (
+            self.coordinator.idu_by_space_id.get(ctrl.space_id)
+            if ctrl.space_id
+            else None
+        )
+        return controller_device_info(ctrl, idu)
 
 
 def idu_device_info(idu: IndoorUnit, space: Space | None = None) -> DeviceInfo:

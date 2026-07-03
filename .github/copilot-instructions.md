@@ -94,12 +94,19 @@ QuiltClient (quilt-hp-python)
   └── QuiltCoordinator (coordinator.py)       ← single source of truth
         ├── initial fetch: get_snapshot()
         ├── real-time: NotifierStream (gRPC bidirectional stream)
-        │     on_space_update / on_idu_update / … → async_set_updated_data()
-        └── polling fallback: _async_update_data() every 5 minutes
+        │     table-driven handlers (_make_stream_handler + SystemSnapshot.apply_*)
+        │     → async_set_updated_data(); on_connected clears the repair issue and
+        │     gap-fills after reconnects; on_error (permanent stream death) raises a
+        │     repair issue and restarts the stream with backoff
+        └── polling fallback: _async_update_data() every 5 minutes (also forced from
+            the push path when the last full snapshot is older than the poll interval,
+            since pushes reschedule HA's poll timer)
 
-QuiltCoordinator.async_set_updated_data()
-  ├── rebuilds indexed dicts: spaces_by_id, idu_by_id, idu_by_space_id, odu_by_id, ctrl_by_id, qsm_by_id
-  └── notifies all subscribed CoordinatorEntity instances → triggers property re-evaluation
+Index rebuild (_rebuild_indexes) runs on BOTH paths — stream pushes
+(async_set_updated_data) and polls (_async_update_data) — and refreshes
+spaces_by_id, idu_by_id, idu_by_space_id, first_idu_id_by_space_id, odu_by_id,
+ctrl_by_id, qsm_by_id, cs_by_id, location_by_id, …; every update notifies all
+subscribed CoordinatorEntity instances → triggers property re-evaluation
 ```
 
 **Physical model hierarchy (from quilt-hp-python):**
@@ -122,7 +129,13 @@ QuiltCoordinator.async_set_updated_data()
 | `select` | `QuiltSelectEntity` | `IndoorUnit` (louver) |
 | `binary_sensor` | — | `IndoorUnit` |
 
-All entity classes inherit from `QuiltEntity(CoordinatorEntity[QuiltCoordinator])` defined in `entity.py`.
+All entity classes inherit from `QuiltEntity(CoordinatorEntity[QuiltCoordinator])` defined in
+`entity.py`. IDU-backed entities (fan, light, select, IDU/QSM sensors, IDU binary sensors)
+extend `QuiltIDUEntity`, controller-backed ones `QuiltControllerEntity` — these provide the
+model lookup, `device_info`, and `available` handling. Platform `async_setup_entry` functions
+register through `entity.async_setup_dynamic_entities()`, which re-runs entity discovery on
+every coordinator update so devices added to the account after setup appear automatically;
+stale devices are removed from the registry in `__init__.py` at setup.
 
 **Device grouping in HA UI:**
 
@@ -133,15 +146,20 @@ All entity classes inherit from `QuiltEntity(CoordinatorEntity[QuiltCoordinator]
 
 **Write operations:**
 
-Entities call `coordinator.async_set_space()` or `coordinator.async_set_indoor_unit()`, which
-wrap `QuiltClient.set_space/set_indoor_unit` with a single transparent re-login retry on expired
-JWT, then call `coordinator.async_request_refresh()` to pull updated state.
+Entities call `coordinator.async_set_space()` / `async_set_indoor_unit()` /
+`async_set_schedule_execution()`. These wrap the client call with one transparent
+re-login retry on `QuiltAuthError` (raising `ConfigEntryAuthFailed` if re-login fails)
+and translate any other `QuiltError` into `HomeAssistantError` so entity actions
+surface failures to the user. Entities then call `_async_refresh_if_not_streaming()`
+(schedule switch always refreshes — Location state is not streamed).
 
 **Auth:**
 
 OTP-based config flow (email → one-time passcode). Tokens are persisted via `HATokenStore`
-(wraps HA's `Storage` API). Refresh happens automatically; re-auth is only needed if the refresh
-token itself expires.
+(wraps HA's `Storage` API) and deleted when the last entry for an account is removed. Access
+token refresh happens automatically in the library transport; a `QuiltAuthError` surfacing in
+the integration means the refresh token was rejected and is mapped to `ConfigEntryAuthFailed`
+(HA re-auth flow) in the setup, polling, and write paths.
 
 ## Key Conventions
 
@@ -149,7 +167,8 @@ token itself expires.
 `SensorEntityDescription` (e.g. `IDUSensorDescription`, `ODUSensorDescription`) with a
 `value_fn: Callable[[Model], Any]` field. Sensor entity classes read `entity_description.value_fn`
 in `native_value`. Adding a new sensor = append one entry to the appropriate `*_SENSOR_DESCRIPTIONS`
-tuple; no new class required.
+tuple (with a `translation_key` and a matching `entity.sensor.<key>.name` entry in `strings.json`
+and `translations/en.json`); no new class required. Entity names are translated, sentence-case.
 
 **`@override` everywhere:** All HA interface methods/properties that override a base class use
 the `@override` decorator from `typing`. Apply it consistently.
@@ -168,8 +187,9 @@ in `__init__` as `self._attr_unique_id`.
 dicts (`spaces_by_id`, `idu_by_id`, etc.) in entity properties — never cache model references
 directly on the entity, as they are replaced on every stream update.
 
-**Temperature handling:** Always pass raw values through `_normalize_temperature()` (defined
-per-module) to convert `NaN` → `None` before returning from HA entity properties.
+**NaN handling:** Always pass raw float values through `normalize_float()` (from `utils.py`)
+to convert `NaN` → `None` before returning from HA entity properties — the Quilt API uses
+`NaN` as a "no reading" sentinel and HA rejects `NaN` state writes.
 
 **Mode mapping:** HVAC mode translation between Quilt enums and HA enums lives in module-level
 dicts `_Q_TO_HA` / `_HA_TO_Q` in `climate.py`.
@@ -179,7 +199,8 @@ Fixtures are plain functions (`make_space`, `make_idu`, `make_odu`, `make_snapsh
 `make_mock_coordinator`) in `tests/conftest.py`. Tests instantiate entity classes directly
 against a mock coordinator — no HA config entry setup is needed for unit tests.
 
-**Type checking:** Both `mypy` (strict) and `basedpyright` (all/ultra-strict) are enforced. The
-`quilt_hp.*` and `homeassistant.*` external packages are excluded from strict checks via
-`ignore_missing_imports`. Use `# type: ignore[attr-defined]` sparingly for dynamic library
-attributes.
+**Type checking:** Both `mypy` (strict) and `basedpyright` (all/ultra-strict) are enforced.
+mypy runs with `explicit_package_bases` so the integration is module
+`custom_components.quilt_hp` — never let the integration package shadow the `quilt_hp`
+library. The `quilt_hp` library is fully typed (py.typed); do not add blanket
+`type: ignore` comments for it.

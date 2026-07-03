@@ -6,23 +6,22 @@ from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from quilt_hp.models.enums import FanSpeed
-from quilt_hp.models.indoor_unit import IndoorUnit
 
 from .coordinator import QuiltCoordinator
+from .entity import QuiltIDUEntity, async_setup_dynamic_entities
 
 if TYPE_CHECKING:
     from . import QuiltConfigEntry
-from .entity import QuiltEntity, idu_device_info
 
 # Limit concurrent updates to avoid overwhelming the device
 PARALLEL_UPDATES = 1
 
-# Map FanSpeed → percentage (for HA's 0-100 speed model).
-# AUTO maps to 0 % (no explicit setpoint).
+# Map FanSpeed → percentage (for HA's 0-100 speed model). AUTO — the fan is
+# controlled by the HVAC system — is modelled as "off" (0 %): the user has
+# not engaged an explicit speed.
 _FAN_TO_PCT: dict[FanSpeed, int] = {
     FanSpeed.AUTO: 0,
     FanSpeed.QUIET: 20,
@@ -41,8 +40,10 @@ _PCT_THRESHOLDS: list[tuple[int, FanSpeed]] = [
     (101, FanSpeed.BLAST),
 ]
 
+# Named presets for the explicit speeds only. AUTO is intentionally not a
+# preset: HA's fan model treats an active preset as "on", which would
+# contradict AUTO being the off state.
 _PRESET_TO_FAN: dict[str, FanSpeed] = {
-    "auto": FanSpeed.AUTO,
     "quiet": FanSpeed.QUIET,
     "low": FanSpeed.LOW,
     "medium": FanSpeed.MEDIUM,
@@ -53,6 +54,8 @@ _PRESET_TO_FAN: dict[str, FanSpeed] = {
 _FAN_TO_PRESET: dict[FanSpeed, str] = {
     speed: preset for preset, speed in _PRESET_TO_FAN.items()
 }
+
+_PRESET_MODES: list[str] = list(_PRESET_TO_FAN)
 
 
 def _pct_to_fan_speed(pct: int) -> FanSpeed:
@@ -69,14 +72,23 @@ async def async_setup_entry(
 ) -> None:
     """Set up fan entities from a config entry."""
     coordinator = entry.runtime_data
-    snapshot = coordinator.data
 
-    entities = [QuiltFanEntity(coordinator, idu.id) for idu in snapshot.indoor_units]
-    async_add_entities(entities)
+    def _build_new(known: set[str]) -> list[tuple[str, QuiltFanEntity]]:
+        return [
+            (idu.id, QuiltFanEntity(coordinator, idu.id))
+            for idu in coordinator.data.indoor_units
+            if idu.id not in known
+        ]
+
+    async_setup_dynamic_entities(entry, coordinator, async_add_entities, _build_new)
 
 
-class QuiltFanEntity(QuiltEntity, FanEntity):
-    """Fan entity representing an indoor unit's fan speed control."""
+class QuiltFanEntity(QuiltIDUEntity, FanEntity):
+    """Fan entity representing an indoor unit's fan speed control.
+
+    "Off" means the fan is in AUTO — its speed is decided by the HVAC
+    system; turning the fan "on" engages an explicit speed.
+    """
 
     _attr_supported_features: FanEntityFeature = (
         FanEntityFeature.SET_SPEED
@@ -85,31 +97,14 @@ class QuiltFanEntity(QuiltEntity, FanEntity):
         | FanEntityFeature.TURN_OFF
     )
     _attr_translation_key: str = "fan"
+    _attr_preset_modes: list[str] = _PRESET_MODES
 
     def __init__(self, coordinator: QuiltCoordinator, idu_id: str) -> None:
         """Initialize the fan entity."""
-        super().__init__(coordinator)
-        self._idu_id: str = idu_id
+        super().__init__(coordinator, idu_id)
         self._attr_unique_id: str = f"quilt_idu_fan_{idu_id}"
-        self._attr_preset_modes: list[str] = list(_PRESET_TO_FAN.keys())
         # Cache the last explicit (non-AUTO) speed for restore on turn_on.
         self._last_explicit_speed: FanSpeed = FanSpeed.LOW
-
-    @property
-    def _idu(self) -> IndoorUnit:
-        return self.coordinator.idu_by_id[self._idu_id]
-
-    @property
-    @override
-    def device_info(self) -> DeviceInfo:
-        idu = self._idu
-        space = self.coordinator.spaces_by_id.get(idu.space_id)
-        return idu_device_info(idu, space)
-
-    @property
-    @override
-    def available(self) -> bool:
-        return super().available and self._idu.is_online
 
     @property
     @override
@@ -168,7 +163,6 @@ class QuiltFanEntity(QuiltEntity, FanEntity):
     @override
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         fan_speed = _PRESET_TO_FAN[preset_mode]
-        if fan_speed != FanSpeed.AUTO:
-            self._last_explicit_speed = fan_speed
+        self._last_explicit_speed = fan_speed
         await self.coordinator.async_set_indoor_unit(self._idu, fan_speed=fan_speed)
         await self._async_refresh_if_not_streaming()

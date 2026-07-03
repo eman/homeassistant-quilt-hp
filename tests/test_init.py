@@ -2,50 +2,67 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 import pytest
+from quilt_hp.exceptions import QuiltAuthError
 
-from custom_components.quilt_hp import async_setup_entry, async_unload_entry
+from custom_components.quilt_hp import (
+    async_remove_entry,
+    async_setup_entry,
+    async_unload_entry,
+)
+
+from .conftest import make_snapshot
 
 
-async def test_async_setup_entry_success(hass) -> None:
-    """Test successful setup of a config entry."""
+def _make_entry(entry_id: str = "test_entry") -> MagicMock:
     entry = MagicMock(spec=ConfigEntry)
-    entry.entry_id = "test_entry"
+    entry.entry_id = entry_id
     entry.data = {"email": "test@example.com", "system_id": "test_system"}
     entry.async_on_unload = MagicMock(return_value=None)
     entry.add_update_listener = MagicMock(return_value=None)
+    return entry
+
+
+async def test_async_setup_entry_success(hass: HomeAssistant) -> None:
+    """Test successful setup of a config entry."""
+    entry = _make_entry()
 
     with patch("custom_components.quilt_hp.QuiltCoordinator") as mock_coord_class:
         mock_coordinator = MagicMock()
         mock_coordinator.async_setup = AsyncMock()
         mock_coordinator.async_shutdown = AsyncMock()
+        mock_coordinator.data = make_snapshot()
         mock_coord_class.return_value = mock_coordinator
 
         with patch.object(
             hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
         ):
             result = await async_setup_entry(hass, entry)
-            assert result is True
-            mock_coordinator.async_setup.assert_awaited_once()
+
+    assert result is True
+    mock_coordinator.async_setup.assert_awaited_once()
+    assert entry.runtime_data is mock_coordinator
+    # Shutdown cleanup must be registered before platforms are forwarded.
+    entry.async_on_unload.assert_any_call(mock_coordinator.async_shutdown)
 
 
-async def test_async_setup_entry_timeout(hass) -> None:
+async def test_async_setup_entry_timeout(hass: HomeAssistant) -> None:
     """Test setup failure due to timeout."""
-    entry = MagicMock(spec=ConfigEntry)
-    entry.entry_id = "test_entry"
-    entry.data = {"email": "test@example.com", "system_id": "test_system"}
+    entry = _make_entry()
 
     async def slow_setup():
-        """Simulate a slow setup."""
-        import asyncio
-
         await asyncio.sleep(100)
 
-    with patch("custom_components.quilt_hp.QuiltCoordinator") as mock_coord_class:
+    with (
+        patch("custom_components.quilt_hp.QuiltCoordinator") as mock_coord_class,
+        patch("custom_components.quilt_hp.INITIAL_FETCH_TIMEOUT_S", 0.01),
+    ):
         mock_coordinator = MagicMock()
         mock_coordinator.async_setup = AsyncMock(side_effect=slow_setup)
         mock_coord_class.return_value = mock_coordinator
@@ -54,11 +71,9 @@ async def test_async_setup_entry_timeout(hass) -> None:
             await async_setup_entry(hass, entry)
 
 
-async def test_async_setup_entry_failure(hass) -> None:
-    """Test setup failure due to exception."""
-    entry = MagicMock(spec=ConfigEntry)
-    entry.entry_id = "test_entry"
-    entry.data = {"email": "test@example.com", "system_id": "test_system"}
+async def test_async_setup_entry_failure(hass: HomeAssistant) -> None:
+    """Generic setup failures map to ConfigEntryNotReady (retry later)."""
+    entry = _make_entry()
 
     with patch("custom_components.quilt_hp.QuiltCoordinator") as mock_coord_class:
         mock_coordinator = MagicMock()
@@ -71,10 +86,44 @@ async def test_async_setup_entry_failure(hass) -> None:
             await async_setup_entry(hass, entry)
 
 
-async def test_async_unload_entry(hass) -> None:
+async def test_async_setup_entry_quilt_auth_error_maps_to_auth_failed(
+    hass: HomeAssistant,
+) -> None:
+    """QuiltAuthError must trigger reauth, not endless retries."""
+    entry = _make_entry()
+
+    with patch("custom_components.quilt_hp.QuiltCoordinator") as mock_coord_class:
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_setup = AsyncMock(
+            side_effect=QuiltAuthError("tokens rejected")
+        )
+        mock_coord_class.return_value = mock_coordinator
+
+        with pytest.raises(ConfigEntryAuthFailed):
+            await async_setup_entry(hass, entry)
+
+
+async def test_async_setup_entry_config_entry_auth_failed_passthrough(
+    hass: HomeAssistant,
+) -> None:
+    """ConfigEntryAuthFailed from the coordinator must propagate unwrapped."""
+    entry = _make_entry()
+
+    with patch("custom_components.quilt_hp.QuiltCoordinator") as mock_coord_class:
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_setup = AsyncMock(
+            side_effect=ConfigEntryAuthFailed("refresh token expired")
+        )
+        mock_coord_class.return_value = mock_coordinator
+
+        with pytest.raises(ConfigEntryAuthFailed) as excinfo:
+            await async_setup_entry(hass, entry)
+    assert not isinstance(excinfo.value, ConfigEntryNotReady)
+
+
+async def test_async_unload_entry(hass: HomeAssistant) -> None:
     """Test unloading a config entry."""
-    entry = MagicMock(spec=ConfigEntry)
-    entry.entry_id = "test_entry"
+    entry = _make_entry()
 
     with patch.object(
         hass.config_entries, "async_unload_platforms", new=AsyncMock(return_value=True)
@@ -83,7 +132,7 @@ async def test_async_unload_entry(hass) -> None:
         assert result is True
 
 
-async def test_async_migrate_entry_v1(hass) -> None:
+async def test_async_migrate_entry_v1(hass: HomeAssistant) -> None:
     """Test migration for v1 (no-op)."""
     from custom_components.quilt_hp import async_migrate_entry
 
@@ -94,7 +143,7 @@ async def test_async_migrate_entry_v1(hass) -> None:
     assert result is True
 
 
-async def test_async_migrate_entry_unknown_version(hass) -> None:
+async def test_async_migrate_entry_unknown_version(hass: HomeAssistant) -> None:
     """Test migration failure for unknown version."""
     from custom_components.quilt_hp import async_migrate_entry
 
@@ -103,3 +152,53 @@ async def test_async_migrate_entry_unknown_version(hass) -> None:
 
     result = await async_migrate_entry(hass, entry)
     assert result is False
+
+
+# ── async_remove_entry ────────────────────────────────────────────────────────
+
+
+async def test_async_remove_entry_deletes_tokens_for_last_entry(
+    hass: HomeAssistant,
+) -> None:
+    """Removing the last entry for an email must delete its cached tokens."""
+    entry = _make_entry()
+
+    with (
+        patch.object(hass.config_entries, "async_entries", return_value=[entry]),
+        patch("custom_components.quilt_hp.HATokenStore") as mock_store_class,
+    ):
+        mock_store = mock_store_class.return_value
+        mock_store.delete = AsyncMock()
+        await async_remove_entry(hass, entry)
+
+    mock_store.delete.assert_awaited_once_with("test@example.com")
+
+
+async def test_async_remove_entry_keeps_tokens_when_email_shared(
+    hass: HomeAssistant,
+) -> None:
+    """Tokens must survive when another entry uses the same account."""
+    entry = _make_entry("entry-1")
+    other = _make_entry("entry-2")
+
+    with (
+        patch.object(hass.config_entries, "async_entries", return_value=[entry, other]),
+        patch("custom_components.quilt_hp.HATokenStore") as mock_store_class,
+    ):
+        mock_store = mock_store_class.return_value
+        mock_store.delete = AsyncMock()
+        await async_remove_entry(hass, entry)
+
+    mock_store.delete.assert_not_awaited()
+
+
+async def test_async_remove_entry_no_email(hass: HomeAssistant) -> None:
+    entry = _make_entry()
+    entry.data = {}
+
+    with patch("custom_components.quilt_hp.HATokenStore") as mock_store_class:
+        mock_store = mock_store_class.return_value
+        mock_store.delete = AsyncMock()
+        await async_remove_entry(hass, entry)
+
+    mock_store.delete.assert_not_awaited()

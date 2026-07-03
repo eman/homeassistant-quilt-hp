@@ -156,3 +156,59 @@ async def test_save_tokens_concurrent(hass) -> None:
 
     # Verify both saves happened
     assert len(call_order) == 4  # 2 loads + 2 saves
+
+
+async def test_delete_removes_entry_and_saves_remainder(hass) -> None:
+    """Deleting one email must keep the other accounts' tokens."""
+    store = HATokenStore(hass)
+
+    data = {
+        "test@example.com": {"id_token": "a", "refresh_token": "b", "expires_at": 1},
+        "other@example.com": {"id_token": "c", "refresh_token": "d", "expires_at": 2},
+    }
+
+    with (
+        patch.object(store._store, "async_load", return_value=data),
+        patch.object(store._store, "async_save", new=AsyncMock()) as mock_save,
+        patch.object(store._store, "async_remove", new=AsyncMock()) as mock_remove,
+    ):
+        await store.delete("test@example.com")
+
+    mock_save.assert_awaited_once()
+    saved_data = mock_save.call_args[0][0]
+    assert "test@example.com" not in saved_data
+    assert "other@example.com" in saved_data
+    mock_remove.assert_not_awaited()
+
+
+async def test_delete_last_entry_removes_store(hass) -> None:
+    """Deleting the last email must remove the whole storage file."""
+    store = HATokenStore(hass)
+
+    data = {
+        "test@example.com": {"id_token": "a", "refresh_token": "b", "expires_at": 1},
+    }
+
+    with (
+        patch.object(store._store, "async_load", return_value=data),
+        patch.object(store._store, "async_save", new=AsyncMock()) as mock_save,
+        patch.object(store._store, "async_remove", new=AsyncMock()) as mock_remove,
+    ):
+        await store.delete("test@example.com")
+
+    mock_save.assert_not_awaited()
+    mock_remove.assert_awaited_once()
+
+
+async def test_delete_missing_email_is_noop(hass) -> None:
+    store = HATokenStore(hass)
+
+    with (
+        patch.object(store._store, "async_load", return_value=None),
+        patch.object(store._store, "async_save", new=AsyncMock()) as mock_save,
+        patch.object(store._store, "async_remove", new=AsyncMock()) as mock_remove,
+    ):
+        await store.delete("missing@example.com")
+
+    mock_save.assert_not_awaited()
+    mock_remove.assert_not_awaited()

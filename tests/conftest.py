@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
+import pytest
+from quilt_hp.models.comfort import ComfortSetting
 from quilt_hp.models.controller import Controller
 from quilt_hp.models.enums import (
+    ComfortSettingType,
     FanSpeed,
     HVACMode,
     HVACState,
@@ -25,6 +28,7 @@ from quilt_hp.models.indoor_unit import (
     IndoorUnitState,
 )
 from quilt_hp.models.outdoor_unit import OutdoorUnit, OutdoorUnitPerformanceData
+from quilt_hp.models.qsm import QsmSensors, QuiltSmartModule
 from quilt_hp.models.sensor import ControllerRemoteSensor, RemoteSensor
 from quilt_hp.models.space import Space, SpaceControls, SpaceSettings, SpaceState
 from quilt_hp.models.system import Location
@@ -227,23 +231,72 @@ def make_location(
     )
 
 
+def make_comfort_setting(
+    cs_id: str = "cs-001",
+    space_id: str = "space-001",
+    name: str = "Cozy",
+    cs_type: ComfortSettingType = ComfortSettingType.ACTIVE,
+    hvac_mode: HVACMode = HVACMode.HEAT,
+    heat_setpoint_c: float = 21.0,
+    cool_setpoint_c: float = 25.0,
+) -> ComfortSetting:
+    return ComfortSetting(
+        id=cs_id,
+        system_id="sys-001",
+        space_id=space_id,
+        name=name,
+        type=cs_type,
+        hvac_mode=hvac_mode,
+        heating_setpoint_c=heat_setpoint_c,
+        cooling_setpoint_c=cool_setpoint_c,
+        fan_speed=FanSpeed.AUTO,
+        louver_mode=LouverMode.AUTO,
+    )
+
+
+def make_qsm(
+    qsm_id: str = "qsm-001",
+    system_id: str = "sys-001",
+) -> QuiltSmartModule:
+    return QuiltSmartModule(
+        id=qsm_id,
+        system_id=system_id,
+        led_color_code=0xFF0000FF,
+        sensors=QsmSensors(
+            phase_detected_raw=0.5,
+            target_detected_raw=0.3,
+            als_illuminance_raw=200,
+            als_ir_raw=50,
+            als_both_raw=250,
+            accel_x_raw=0,
+            accel_y_raw=0,
+            accel_z_raw=1000,
+        ),
+        hosted_wifi=None,
+        ap_wifi=None,
+        p2p_wifi=None,
+    )
+
+
 def make_snapshot(
     spaces=None,
     indoor_units=None,
     outdoor_units=None,
     controllers=None,
+    quilt_smart_modules=None,
+    comfort_settings=None,
     remote_sensors=None,
     controller_remote_sensors=None,
     locations=None,
 ) -> MagicMock:
-    """Build a minimal SystemSnapshot mock."""
+    """Build a minimal SystemSnapshot mock with real model lists."""
     snapshot = MagicMock()
     snapshot.spaces = spaces or [make_space()]
     snapshot.indoor_units = indoor_units or [make_idu()]
     snapshot.outdoor_units = outdoor_units or [make_odu()]
     snapshot.controllers = controllers or []
-    snapshot.quilt_smart_modules = []
-    snapshot.comfort_settings = []
+    snapshot.quilt_smart_modules = quilt_smart_modules or []
+    snapshot.comfort_settings = comfort_settings or []
     snapshot.schedule_weeks = []
     snapshot.schedule_days = []
     snapshot.remote_sensors = remote_sensors or []
@@ -251,11 +304,6 @@ def make_snapshot(
     snapshot.software_update_infos = []
     snapshot.locations = locations or [make_location()]
     snapshot.stream_topics.return_value = ["topic-1"]
-    snapshot.apply_space.side_effect = lambda s: s
-    snapshot.apply_indoor_unit.side_effect = lambda u: u
-    snapshot.apply_outdoor_unit.side_effect = lambda u: u
-    snapshot.apply_remote_sensor.side_effect = lambda r: r
-    snapshot.apply_controller_remote_sensor.side_effect = lambda r: r
     return snapshot
 
 
@@ -275,9 +323,19 @@ def make_mock_coordinator(hass: HomeAssistant, snapshot=None) -> MagicMock:
     coordinator.idu_by_space_id = {
         u.space_id: u for u in data.indoor_units if u.space_id
     }
+    first_idu: dict[str, str] = {}
+    for idu in data.indoor_units:
+        if idu.space_id and idu.space_id not in first_idu:
+            first_idu[idu.space_id] = idu.id
+    coordinator.first_idu_id_by_space_id = first_idu
     coordinator.odu_by_id = {u.id: u for u in data.outdoor_units}
     coordinator.ctrl_by_id = {c.id: c for c in data.controllers}
-    coordinator.qsm_by_id = {}
+    coordinator.qsm_by_id = {q.id: q for q in data.quilt_smart_modules}
+    coordinator.cs_by_id = {cs.id: cs for cs in data.comfort_settings}
+    cs_by_space: dict[str, list] = {}
+    for cs in data.comfort_settings:
+        cs_by_space.setdefault(cs.space_id, []).append(cs)
+    coordinator.cs_by_space_id = cs_by_space
     coordinator.remote_sensor_by_id = {r.id: r for r in data.remote_sensors}
     coordinator.ctrl_remote_sensor_by_id = {
         r.id: r for r in data.controller_remote_sensors
@@ -286,10 +344,84 @@ def make_mock_coordinator(hass: HomeAssistant, snapshot=None) -> MagicMock:
     coordinator.energy_by_space_id = {}
     coordinator.energy_last_reset = None
     coordinator.last_update_success = True
+    coordinator.stream_death_count = 0
     coordinator.client = MagicMock()
     coordinator.async_set_space = AsyncMock()
     coordinator.async_set_indoor_unit = AsyncMock()
     coordinator.async_set_schedule_execution = AsyncMock()
     coordinator.async_request_refresh = AsyncMock()
     coordinator.is_streaming = False
+    # Capture update listeners so tests can simulate coordinator pushes.
+    coordinator.listeners = []
+
+    def _add_listener(callback, context=None):
+        coordinator.listeners.append(callback)
+        return lambda: coordinator.listeners.remove(callback)
+
+    coordinator.async_add_listener = MagicMock(side_effect=_add_listener)
     return coordinator
+
+
+def make_entry_mock(hass: HomeAssistant | None = None) -> MagicMock:
+    """Return a minimal ConfigEntry mock for constructing a QuiltCoordinator.
+
+    Background tasks created via ``async_create_background_task`` are recorded
+    in ``entry.created_task_names``. When *hass* is given, the task coroutine
+    is actually scheduled on the event loop; otherwise it is closed unawaited.
+    """
+    entry = MagicMock()
+    entry.options = {}
+    entry.created_task_names = []
+
+    def _bg_task(_hass, coro, name=None, eager_start=True):
+        entry.created_task_names.append(name)
+        if hass is not None:
+            return hass.async_create_task(coro)
+        coro.close()
+        task = MagicMock()
+        task.done.return_value = False
+        return task
+
+    entry.async_create_background_task = MagicMock(side_effect=_bg_task)
+    return entry
+
+
+def get_stream_callback(stream: MagicMock, name: str):
+    """Return the callback the coordinator registered on the mock stream."""
+    return getattr(stream, name).call_args[0][0]
+
+
+@pytest.fixture
+def mock_client():
+    """Patch QuiltClient inside the coordinator module.
+
+    Yields ``(client, stream)``. The stream mock tolerates all ``on_*``
+    registration methods (plain MagicMock attributes) and provides awaitable
+    ``start()``/``stop()`` plus ``is_connected``/``stream_state``.
+    """
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    client.login = AsyncMock()
+    client.get_snapshot = AsyncMock(return_value=make_snapshot())
+    client.invalidate_snapshot = MagicMock()
+    client.get_energy = AsyncMock(return_value=[])
+    client.set_space = AsyncMock()
+    client.set_indoor_unit = AsyncMock()
+    client.set_schedule_execution = AsyncMock()
+    client.list_systems = AsyncMock(return_value=[])
+
+    stream = MagicMock()
+    stream.start = AsyncMock()
+    stream.stop = AsyncMock()
+    stream.is_connected = True
+    stream.stream_state = "connected"
+    client.stream.return_value = stream
+
+    with (
+        patch(
+            "custom_components.quilt_hp.coordinator.QuiltClient", return_value=client
+        ),
+        patch("custom_components.quilt_hp.coordinator.HATokenStore"),
+    ):
+        yield client, stream
