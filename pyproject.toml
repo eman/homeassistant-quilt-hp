@@ -65,7 +65,7 @@ include = ["custom_components/quilt_hp"]
 pythonVersion = "3.14"
 typeCheckingMode = "all" # Ultra-strict mode
 venvPath = "."
-venv = ".venv314"
+venv = ".venv"
 
 # Loosen some checks that are too noisy in HA environment
 reportMissingTypeStubs = false

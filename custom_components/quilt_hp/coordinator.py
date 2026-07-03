@@ -74,6 +74,7 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         self._system_id: str | None = system_id  # None → library picks default
         self._stream: Any = None  # Using Any for stream due to dynamic library types
         self._stream_error_count: int = 0
+        self._stream_connected_once: bool = False
         self._was_available: bool = True  # Track connection state for logging
         self.spaces_by_id: dict[str, Space] = {}
         self.idu_by_id: dict[str, IndoorUnit] = {}
@@ -145,6 +146,24 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
                 self._was_available = True
             self._stream_error_count = 0
             async_delete_issue(self.hass, DOMAIN, _ISSUE_STREAM_DEGRADED)
+
+    def _on_stream_connected(self) -> None:
+        """Handle the stream (re)connecting.
+
+        Fired by the library's ``on_connected`` callback (quilt-hp-python
+        >= 0.5.4). Events published while the stream was disconnected are
+        lost, so on any reconnect after the initial connection we schedule a
+        full refresh to close the gap instead of waiting for the next poll.
+        """
+        is_reconnect = self._stream_connected_once
+        self._stream_connected_once = True
+        self._on_stream_reconnect()
+        if is_reconnect and self.config_entry is not None:
+            self.config_entry.async_create_background_task(
+                self.hass,
+                self.async_request_refresh(),
+                name="quilt_hp-reconnect-refresh",
+            )
 
     # ------------------------------------------------------------------
     # Public API used by __init__.py
@@ -233,6 +252,7 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         stream.on_remote_sensor_update(self._on_remote_sensor_update)
         stream.on_controller_remote_sensor_update(self._on_ctrl_remote_sensor_update)
         stream.on_error(self._on_stream_error)
+        stream.on_connected(self._on_stream_connected)
         # Refresh energy on any push — registered for every entity type since
         # the per-type handlers above only update their own snapshot data.
         for register in (
@@ -253,43 +273,36 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
     def _on_space_update(self, space: Space) -> None:
         if self.data:
             _ = self.data.apply_space(space)
-            self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_idu_update(self, idu: IndoorUnit) -> None:
         if self.data:
             _ = self.data.apply_indoor_unit(idu)
-            self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_odu_update(self, odu: OutdoorUnit) -> None:
         if self.data:
             _ = self.data.apply_outdoor_unit(odu)
-            self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_ctrl_update(self, ctrl: Controller) -> None:
         if self.data:
             _ = self.data.apply_controller(ctrl)
-            self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_qsm_update(self, qsm: QuiltSmartModule) -> None:
         if self.data:
             _ = self.data.apply_qsm(qsm)
-            self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_remote_sensor_update(self, rs: RemoteSensor) -> None:
         if self.data:
             _ = self.data.apply_remote_sensor(rs)
-            self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_ctrl_remote_sensor_update(self, crs: ControllerRemoteSensor) -> None:
         if self.data:
             _ = self.data.apply_controller_remote_sensor(crs)
-            self._on_stream_reconnect()
             self.async_set_updated_data(self.data)
 
     def _on_stream_energy_refresh(self, _entity: object) -> None:
