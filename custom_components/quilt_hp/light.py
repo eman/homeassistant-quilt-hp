@@ -124,7 +124,7 @@ class QuiltLightEntity(QuiltIDUEntity, LightEntity):
         color_code = _encode_rgbw(*rgbw) if rgbw is not None else None
         animation = _EFFECT_TO_ANIMATION.get(effect) if effect is not None else None
 
-        # Note: quilt-hp-python 0.5.4 does not support explicit led_state
+        # Note: quilt-hp-python 0.5.5 does not support explicit led_state
         # ON/OFF in set_indoor_unit; the LED is controlled via brightness.
         # The device may report led_state OFF while retaining a nonzero
         # brightness, so key the restore on the actual on/off state.
@@ -142,7 +142,7 @@ class QuiltLightEntity(QuiltIDUEntity, LightEntity):
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
-        # Note: quilt-hp-python 0.5.4 does not support explicit led_state
+        # Note: quilt-hp-python 0.5.5 does not support explicit led_state
         # ON/OFF in set_indoor_unit.
         await self.coordinator.async_set_indoor_unit(
             self._idu,

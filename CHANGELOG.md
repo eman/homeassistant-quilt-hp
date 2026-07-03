@@ -3,14 +3,16 @@
 ## [Unreleased]
 
 ### Changed
-- Upgraded `quilt-hp-python` dependency to `>=0.5.4`
-  - Fixes proto3 absence detection: sparse stream diffs no longer zero room state, IDU
-    controls, sensor readings, or controller temperatures when merged into the snapshot
-  - Fixes the transport `UNAUTHENTICATED` retry that never executed, which broke clients
-    permanently about an hour after token expiry
-  - Stream reconnect backoff and budget now reset after a healthy connection, so routine
-    server-side stream recycling no longer escalates to permanent 60-second delays or
-    kills the stream; non-gRPC failures reconnect instead of dying silently
+- Upgraded `quilt-hp-python` dependency to `>=0.5.5`
+  - Routine hourly token refresh on unary RPCs is now logged at `INFO` instead of
+    `WARNING` ([quilt-hp-python#13](https://github.com/eman/quilt-hp-python/issues/13))
+  - Includes all 0.5.4 fixes: proto3 absence detection (sparse stream diffs no longer
+    zero room state, IDU controls, sensor readings, or controller temperatures when
+    merged into the snapshot), the transport `UNAUTHENTICATED` retry that never
+    executed (clients broke permanently about an hour after token expiry), and stream
+    reconnect backoff/budget reset after a healthy connection (routine server-side
+    stream recycling no longer escalates to permanent 60-second delays or kills the
+    stream; non-gRPC failures reconnect instead of dying silently)
 - Stream health is now tracked via the library's new `on_connected` callback instead of
   being inferred from incoming entity events
 - Sensor, binary sensor, fan preset, and louver angle names now use translation keys
