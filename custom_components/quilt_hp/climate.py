@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, override
 from homeassistant.components.climate import (
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
-    PRESET_NONE,
     ClimateEntity,
     ClimateEntityFeature,
     HVACAction,
@@ -16,19 +15,16 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from quilt_hp.models.comfort import ComfortSetting
 from quilt_hp.models.enums import (
-    ComfortSettingType,
     HVACMode as QHVACMode,
     HVACState as QHVACState,
 )
 from quilt_hp.models.space import Space
 
-from .const import DOMAIN
 from .coordinator import QuiltCoordinator
 from .entity import QuiltEntity, async_setup_dynamic_entities, idu_device_info
 from .utils import normalize_float
@@ -106,7 +102,6 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
     _attr_supported_features: ClimateEntityFeature = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-        | ClimateEntityFeature.PRESET_MODE
         | ClimateEntityFeature.TURN_ON
         | ClimateEntityFeature.TURN_OFF
     )
@@ -269,65 +264,5 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
             self._space,
             heat_setpoint_c=heat_sp,
             cool_setpoint_c=cool_sp,
-        )
-        await self._async_refresh_if_not_streaming()
-
-    # ------------------------------------------------------------------
-    # Preset mode — Quilt comfort settings exposed as HA presets
-    # ------------------------------------------------------------------
-
-    def _comfort_settings_for_space(self) -> list[ComfortSetting]:
-        """Return comfort settings for this space, excluding placeholder types."""
-        return [
-            cs
-            for cs in self.coordinator.cs_by_space_id.get(self._space_id, [])
-            if cs.type is not ComfortSettingType.UNSPECIFIED
-        ]
-
-    @property
-    @override
-    def preset_modes(self) -> list[str]:
-        """Return the list of available preset names for this space."""
-        names = [cs.name for cs in self._comfort_settings_for_space()]
-        return [PRESET_NONE, *names]
-
-    @property
-    @override
-    def preset_mode(self) -> str:
-        """Return the name of the currently active comfort preset, or PRESET_NONE."""
-        cs_id = self._space.controls.comfort_setting_id
-        if not cs_id:
-            return PRESET_NONE
-        cs = self.coordinator.cs_by_id.get(cs_id)
-        return cs.name if cs is not None else PRESET_NONE
-
-    @override
-    async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Activate a comfort setting by applying its mode and setpoints to the space.
-
-        Selecting PRESET_NONE is a no-op — the user should change mode/setpoints
-        directly to enter manual control. Quilt's schedule system will
-        continue to manage preset transitions automatically.
-        """
-        if preset_mode == PRESET_NONE:
-            return
-
-        target = next(
-            (cs for cs in self._comfort_settings_for_space() if cs.name == preset_mode),
-            None,
-        )
-        if target is None:
-            raise ServiceValidationError(
-                f"Unknown Quilt preset {preset_mode!r} for space {self._space_id}",
-                translation_domain=DOMAIN,
-                translation_key="unknown_preset",
-                translation_placeholders={"preset": preset_mode},
-            )
-
-        await self.coordinator.async_set_space(
-            self._space,
-            mode=target.hvac_mode,
-            heat_setpoint_c=target.heating_setpoint_c,
-            cool_setpoint_c=target.cooling_setpoint_c,
         )
         await self._async_refresh_if_not_streaming()

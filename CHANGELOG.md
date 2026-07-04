@@ -23,8 +23,8 @@
   reporting as off). Presets are now Quiet/Low/Medium/High/Blast
 - Louver angle select options are now lowercase translated keys (`horizontal`,
   `slightly_down`, `down`, `mostly_down`, `straight_down`) instead of raw enum names
-- Entity service actions now raise `HomeAssistantError` when a Quilt API call fails and
-  `ServiceValidationError` for an unknown climate preset (previously a silent warning)
+- Entity service actions now raise `HomeAssistantError` when a Quilt API call fails
+  (previously a silent warning)
 - The `stream_degraded` repair issue is created as soon as the stream dies for good,
   shows the actual configured polling interval, and is removed on unload
 - Schedule switch writes always trigger an immediate poll (location state is not
@@ -38,9 +38,8 @@
   error codes are re-enabled
 
 ### Added
-- Exception translations: entity action failures, unknown presets, and
-  re-authentication errors now use translatable messages (`exceptions` section in
-  `strings.json`)
+- Exception translations: entity action failures and re-authentication errors now use
+  translatable messages (`exceptions` section in `strings.json`)
 - README: use cases and automation examples (presence-based setback, schedule
   pausing, energy budgets, LED notifications) validated against a live system
 - Dynamic device support: indoor units, spaces, controllers, remote sensors, and
@@ -54,6 +53,13 @@
 - Cached authentication tokens are deleted from HA storage when the last config entry
   for an account is removed
 - Removal instructions in the README
+
+### Removed
+- Climate preset support (`ClimateEntityFeature.PRESET_MODE`). Quilt's comfort settings
+  (Active/Sleep/Away/Standby/Custom) are internal schedule states applied automatically
+  by Quilt's scheduler, not user-selectable presets, so exposing them as HA presets was
+  misleading. Setpoint display still falls back to the active comfort setting's values
+  when the API returns placeholder setpoints.
 
 ### Fixed
 - Fallback polling never refreshed the coordinator's entity lookup indexes, so all

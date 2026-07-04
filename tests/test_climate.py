@@ -5,15 +5,12 @@ from __future__ import annotations
 import math
 
 from homeassistant.components.climate import (
-    PRESET_NONE,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
 )
-from homeassistant.exceptions import ServiceValidationError
 import pytest
 from quilt_hp.models.enums import (
-    ComfortSettingType,
     HVACMode as QHVACMode,
     HVACState as QHVACState,
 )
@@ -223,7 +220,6 @@ def test_supported_features_include_turn_on_off(coordinator) -> None:
     features = _entity(coordinator).supported_features
     assert features & ClimateEntityFeature.TURN_ON
     assert features & ClimateEntityFeature.TURN_OFF
-    assert features & ClimateEntityFeature.PRESET_MODE
 
 
 def test_unique_id(coordinator) -> None:
@@ -264,64 +260,3 @@ def test_unavailable_when_coordinator_failed(coordinator) -> None:
     entity = _entity(coordinator)
     coordinator.last_update_success = False
     assert entity.available is False
-
-
-# ── Presets (comfort settings) ────────────────────────────────────────────────
-
-
-@pytest.fixture
-def preset_coordinator(hass):
-    space = make_space(hvac_mode=QHVACMode.HEAT)
-    settings = [
-        make_comfort_setting(cs_id="cs-001", name="Cozy"),
-        make_comfort_setting(cs_id="cs-002", name="Eco", hvac_mode=QHVACMode.AUTO),
-        make_comfort_setting(
-            cs_id="cs-003", name="Hidden", cs_type=ComfortSettingType.UNSPECIFIED
-        ),
-    ]
-    snapshot = make_snapshot(spaces=[space], comfort_settings=settings)
-    return make_mock_coordinator(hass, snapshot)
-
-
-def test_preset_modes_exclude_unspecified(preset_coordinator) -> None:
-    assert _entity(preset_coordinator).preset_modes == [PRESET_NONE, "Cozy", "Eco"]
-
-
-def test_preset_mode_reflects_active_comfort_setting(preset_coordinator) -> None:
-    # make_space sets controls.comfort_setting_id = "cs-001"
-    assert _entity(preset_coordinator).preset_mode == "Cozy"
-
-
-def test_preset_mode_none_when_no_comfort_setting(hass) -> None:
-    space = make_space()
-    space.controls.comfort_setting_id = ""
-    coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
-    assert _entity(coordinator).preset_mode == PRESET_NONE
-
-
-def test_preset_mode_none_when_comfort_setting_unknown(hass) -> None:
-    coordinator = make_mock_coordinator(hass, make_snapshot())
-    assert _entity(coordinator).preset_mode == PRESET_NONE
-
-
-async def test_set_preset_mode_applies_comfort_setting(preset_coordinator) -> None:
-    entity = _entity(preset_coordinator)
-    await entity.async_set_preset_mode("Eco")
-    preset_coordinator.async_set_space.assert_awaited_once()
-    call_kwargs = preset_coordinator.async_set_space.call_args[1]
-    assert call_kwargs["mode"] == QHVACMode.AUTO
-    assert call_kwargs["heat_setpoint_c"] == 21.0
-    assert call_kwargs["cool_setpoint_c"] == 25.0
-
-
-async def test_set_preset_mode_none_is_noop(preset_coordinator) -> None:
-    entity = _entity(preset_coordinator)
-    await entity.async_set_preset_mode(PRESET_NONE)
-    preset_coordinator.async_set_space.assert_not_awaited()
-
-
-async def test_set_preset_mode_unknown_raises(preset_coordinator) -> None:
-    entity = _entity(preset_coordinator)
-    with pytest.raises(ServiceValidationError):
-        await entity.async_set_preset_mode("Nonexistent")
-    preset_coordinator.async_set_space.assert_not_awaited()

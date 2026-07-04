@@ -158,8 +158,7 @@ default to reduce noise; enable them individually in the HA entity registry.
 | Space temperature | `sensor` | Enabled |
 
 The climate entity supports the following HVAC modes: **Off**, **Cool**, **Heat**,
-**Heat/Cool** (auto), **Fan only**, **Dry**. It also exposes Quilt **comfort settings**
-as HA preset modes — selecting a preset activates that comfort profile on the space.
+**Heat/Cool** (auto), **Fan only**, **Dry**.
 
 ### Per Indoor Unit (IDU)
 
@@ -250,8 +249,8 @@ and include:
 ## Use cases
 
 - **Room-by-room comfort** — each Quilt space is a `climate` entity with its own
-  setpoints, mode, and comfort-setting presets, so bedrooms, offices, and living areas
-  can follow different targets and schedules.
+  setpoints and mode, so bedrooms, offices, and living areas can follow different
+  targets and schedules.
 - **Presence-aware HVAC** — every indoor unit exposes radar-based `motion`, `presence`,
   and `occupied` binary sensors. Use them to set back unoccupied rooms or as
   general-purpose occupancy sensors for lighting and security automations.
@@ -291,11 +290,12 @@ automation:
         entity_id: binary_sensor.family_room_occupied
         to: "on"
     actions:
-      - action: climate.set_preset_mode
+      - action: climate.set_temperature
         target:
           entity_id: climate.family_room
         data:
-          preset_mode: "Home"   # any Quilt comfort setting name
+          target_temp_low: 20
+          target_temp_high: 24
 ```
 
 **Pause all Quilt schedules while nobody is home:**

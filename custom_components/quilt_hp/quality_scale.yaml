@@ -34,7 +34,7 @@ rules:
   # Silver
   action-exceptions:
     status: done
-    comment: Coordinator write helper raises HomeAssistantError; unknown presets raise ServiceValidationError.
+    comment: Coordinator write helper raises HomeAssistantError on Quilt API failures.
   config-entry-unloading: done
   docs-configuration-parameters: done
   docs-installation-parameters: done
