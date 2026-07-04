@@ -129,8 +129,33 @@ def test_target_temperature_shown_when_not_off_even_with_sentinel_values(hass) -
     coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
     entity = _entity(coordinator)
     assert entity.target_temperature == 8.0
-    assert entity.target_temperature_low == 8.0
-    assert entity.target_temperature_high == 40.0
+    # Single-setpoint mode: no range values.
+    assert entity.target_temperature_low is None
+    assert entity.target_temperature_high is None
+
+
+def test_target_temperature_cool_mode_single_setpoint(hass) -> None:
+    """COOL mode exposes only the single cool setpoint, not a low/high range."""
+    space = make_space(
+        hvac_mode=QHVACMode.COOL, heat_setpoint_c=16.0, cool_setpoint_c=23.0
+    )
+    coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
+    entity = _entity(coordinator)
+    assert entity.target_temperature == 23.0
+    assert entity.target_temperature_low is None
+    assert entity.target_temperature_high is None
+
+
+def test_target_temperature_heat_mode_single_setpoint(hass) -> None:
+    """HEAT mode exposes only the single heat setpoint, not a low/high range."""
+    space = make_space(
+        hvac_mode=QHVACMode.HEAT, heat_setpoint_c=20.0, cool_setpoint_c=26.0
+    )
+    coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
+    entity = _entity(coordinator)
+    assert entity.target_temperature == 20.0
+    assert entity.target_temperature_low is None
+    assert entity.target_temperature_high is None
 
 
 def test_target_temperature_prefers_active_comfort_setting_when_controls_sentinel(

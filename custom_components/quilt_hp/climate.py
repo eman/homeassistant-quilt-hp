@@ -243,7 +243,9 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
     @property
     @override
     def target_temperature_high(self) -> float | None:
-        if self._is_explicit_off_mode or not self._supports_setpoint_display:
+        # Range setpoints apply only in Heat/Cool (auto); single-setpoint
+        # Heat and Cool modes use target_temperature instead.
+        if self.hvac_mode != HVACMode.HEAT_COOL:
             return None
         _, cool = self._effective_setpoints
         return cool
@@ -251,7 +253,7 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
     @property
     @override
     def target_temperature_low(self) -> float | None:
-        if self._is_explicit_off_mode or not self._supports_setpoint_display:
+        if self.hvac_mode != HVACMode.HEAT_COOL:
             return None
         heat, _ = self._effective_setpoints
         return heat

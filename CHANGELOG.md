@@ -85,6 +85,10 @@
   setting's values when the API returns placeholder setpoints.
 
 ### Fixed
+- The thermostat card no longer shows a low/high temperature range in single-setpoint
+  Heat or Cool mode. `target_temperature_low`/`target_temperature_high` are now reported
+  only in Heat/Cool (auto) mode, so Heat and Cool modes show a single target setpoint
+  instead of a spurious range alongside it.
 - Indoor unit and Dial devices are now named after the room they serve (e.g. "Family
   Room Indoor Unit", "Family Room Dial") instead of Quilt's serial-based default name
   ("Indoor Unit {serial}"). A genuine user-set name in the Quilt app is still respected;
