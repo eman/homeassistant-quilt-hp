@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from quilt_hp.models.enums import ComfortSettingType
 
 from custom_components.quilt_hp.sensor import (
     CONTROLLER_REMOTE_SENSOR_DESCRIPTIONS,
@@ -17,6 +18,7 @@ from custom_components.quilt_hp.sensor import (
     QSM_SENSOR_DESCRIPTIONS,
     REMOTE_SENSOR_DESCRIPTIONS,
     SPACE_SENSOR_DESCRIPTIONS,
+    QuiltComfortSettingSensor,
     QuiltControllerRemoteSensor,
     QuiltControllerSensor,
     QuiltEnergySensor,
@@ -29,6 +31,7 @@ from custom_components.quilt_hp.sensor import (
 )
 
 from .conftest import (
+    make_comfort_setting,
     make_controller,
     make_ctrl_remote_sensor,
     make_idu,
@@ -86,6 +89,38 @@ def test_space_ambient_temperature_nan_is_none(hass) -> None:
     coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
     desc = next(d for d in SPACE_SENSOR_DESCRIPTIONS if d.key == "space_temperature")
     entity = QuiltSpaceSensor(coordinator, "space-001", "idu-001", desc)
+    assert entity.native_value is None
+
+
+def test_active_comfort_setting_reflects_type(hass) -> None:
+    space = make_space()  # controls.comfort_setting_id defaults to "cs-001"
+    cs = make_comfort_setting(
+        cs_id="cs-001", name="Cozy", cs_type=ComfortSettingType.SLEEP
+    )
+    coordinator = make_mock_coordinator(
+        hass, make_snapshot(spaces=[space], comfort_settings=[cs])
+    )
+    entity = QuiltComfortSettingSensor(coordinator, "space-001", "idu-001")
+    assert entity.native_value == "sleep"
+    assert entity.extra_state_attributes == {"comfort_setting_name": "Cozy"}
+
+
+def test_active_comfort_setting_none_when_unlinked(hass) -> None:
+    space = make_space()
+    space.controls.comfort_setting_id = ""
+    coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
+    entity = QuiltComfortSettingSensor(coordinator, "space-001", "idu-001")
+    assert entity.native_value is None
+    assert entity.extra_state_attributes is None
+
+
+def test_active_comfort_setting_none_when_unspecified(hass) -> None:
+    space = make_space()
+    cs = make_comfort_setting(cs_id="cs-001", cs_type=ComfortSettingType.UNSPECIFIED)
+    coordinator = make_mock_coordinator(
+        hass, make_snapshot(spaces=[space], comfort_settings=[cs])
+    )
+    entity = QuiltComfortSettingSensor(coordinator, "space-001", "idu-001")
     assert entity.native_value is None
 
 

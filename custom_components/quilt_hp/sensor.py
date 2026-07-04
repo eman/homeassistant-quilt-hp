@@ -1,7 +1,8 @@
 """Sensor platform for Quilt Heat Pump.
 
 Provides sensor entities for:
-- QSM/IDU: space temperature (space-calibrated), unit temp, humidity,
+- Space: space temperature (space-calibrated), active comfort setting
+- QSM/IDU: unit temp, humidity,
            fan RPM, inlet/outlet temp, presence level,
            COP, HVAC capacity (W), HVAC power (W), LED power (W),
            coil/gas-pipe/liquid-pipe temperatures, inlet humidity,
@@ -44,8 +45,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from quilt_hp.models.comfort import ComfortSetting
 from quilt_hp.models.controller import Controller
-from quilt_hp.models.enums import LocalCommsHealthStatus
+from quilt_hp.models.enums import ComfortSettingType, LocalCommsHealthStatus
 from quilt_hp.models.indoor_unit import IndoorUnit
 from quilt_hp.models.outdoor_unit import OutdoorUnit
 from quilt_hp.models.qsm import QuiltSmartModule
@@ -71,6 +73,15 @@ if TYPE_CHECKING:
 PARALLEL_UPDATES = 0
 
 _COMMS_HEALTH_OPTIONS: list[str] = [m.name.lower() for m in LocalCommsHealthStatus]
+
+# Comfort-setting types Quilt actually applies to a room, as ENUM sensor options.
+# UNSPECIFIED is a placeholder ("no active comfort setting") and is surfaced as
+# an unknown/None state rather than an option.
+_COMFORT_SETTING_OPTIONS: list[str] = [
+    t.name.lower()
+    for t in ComfortSettingType
+    if t is not ComfortSettingType.UNSPECIFIED
+]
 
 
 def _local_comms_health_name(health: LocalCommsHealthStatus | None) -> str | None:
@@ -693,6 +704,7 @@ async def async_setup_entry(
                 new.append(
                     (key, QuiltSpaceSensor(coordinator, space.id, idu_id, space_desc))
                 )
+            new.append((key, QuiltComfortSettingSensor(coordinator, space.id, idu_id)))
             new.append((key, QuiltEnergySensor(coordinator, space.id, idu_id)))
 
         # QSM/IDU sensors
@@ -787,6 +799,64 @@ class QuiltSpaceSensor(QuiltIDUEntity, SensorEntity):
     @override
     def native_value(self) -> Any:
         return self.entity_description.value_fn(self._space)
+
+
+class QuiltComfortSettingSensor(QuiltIDUEntity, SensorEntity):
+    """Diagnostic sensor for the comfort setting Quilt is applying to a space.
+
+    Quilt's scheduler activates a comfort profile (Active/Sleep/Away/Standby/
+    Custom) per room; this surfaces which one is currently active as an ENUM
+    sensor keyed on the profile *type*. The profile's free-form name is exposed
+    as the ``comfort_setting_name`` state attribute.
+    """
+
+    _attr_device_class: SensorDeviceClass = SensorDeviceClass.ENUM
+    _attr_entity_category: EntityCategory = EntityCategory.DIAGNOSTIC
+    _attr_options: list[str] = _COMFORT_SETTING_OPTIONS
+    _attr_translation_key: str = "active_comfort_setting"
+
+    def __init__(
+        self,
+        coordinator: QuiltCoordinator,
+        space_id: str,
+        idu_id: str,
+    ) -> None:
+        """Initialize the active comfort setting sensor."""
+        super().__init__(coordinator, idu_id)
+        self._space_id: str = space_id
+        self._attr_unique_id: str = f"quilt_space_{space_id}_active_comfort_setting"
+
+    @property
+    def _space(self) -> Space:
+        return self.coordinator.spaces_by_id[self._space_id]
+
+    @property
+    def _active_comfort_setting(self) -> ComfortSetting | None:
+        cs_id = self._space.controls.comfort_setting_id_or_none
+        if cs_id is None:
+            return None
+        return self.coordinator.cs_by_id.get(cs_id)
+
+    @property
+    @override
+    def available(self) -> bool:
+        return super().available and self._space_id in self.coordinator.spaces_by_id
+
+    @property
+    @override
+    def native_value(self) -> str | None:
+        cs = self._active_comfort_setting
+        if cs is None or cs.type is ComfortSettingType.UNSPECIFIED:
+            return None
+        return cs.type.name.lower()
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        cs = self._active_comfort_setting
+        if cs is None or not cs.name:
+            return None
+        return {"comfort_setting_name": cs.name}
 
 
 class QuiltIDUSensor(QuiltIDUEntity, SensorEntity):

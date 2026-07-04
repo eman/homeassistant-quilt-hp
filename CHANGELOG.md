@@ -38,6 +38,11 @@
   error codes are re-enabled
 
 ### Added
+- Per-space **Active comfort setting** diagnostic sensor (`ENUM`: active/sleep/away/
+  standby/custom) reporting which comfort profile Quilt's scheduler is currently applying
+  to a room; the profile's configured name is exposed as the `comfort_setting_name`
+  attribute. This replaces the removed climate preset control with a read-only,
+  non-misleading view of the same state.
 - Exception translations: entity action failures and re-authentication errors now use
   translatable messages (`exceptions` section in `strings.json`)
 - README: use cases and automation examples (presence-based setback, schedule

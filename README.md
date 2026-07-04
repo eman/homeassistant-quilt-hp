@@ -156,9 +156,16 @@ default to reduce noise; enable them individually in the HA entity registry.
 |---|---|---|
 | Climate | `climate` | Enabled |
 | Space temperature | `sensor` | Enabled |
+| Active comfort setting | `sensor` | Enabled (diagnostic) |
 
 The climate entity supports the following HVAC modes: **Off**, **Cool**, **Heat**,
 **Heat/Cool** (auto), **Fan only**, **Dry**.
+
+The **Active comfort setting** sensor reports which comfort profile Quilt's scheduler is
+currently applying to the room (**Active**, **Sleep**, **Away**, **Standby**, or
+**Custom**); the profile's configured name is available as its `comfort_setting_name`
+attribute. It is read-only — comfort profiles are managed by Quilt's schedule, not
+selected from Home Assistant.
 
 ### Per Indoor Unit (IDU)
 

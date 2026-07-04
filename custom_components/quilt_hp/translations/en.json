@@ -141,6 +141,16 @@
       "space_temperature": {
         "name": "Space temperature"
       },
+      "active_comfort_setting": {
+        "name": "Active comfort setting",
+        "state": {
+          "active": "Active",
+          "sleep": "Sleep",
+          "away": "Away",
+          "standby": "Standby",
+          "custom": "Custom"
+        }
+      },
       "temperature": {
         "name": "Temperature"
       },
