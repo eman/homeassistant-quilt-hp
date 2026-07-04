@@ -132,6 +132,43 @@ async def test_async_unload_entry(hass: HomeAssistant) -> None:
         assert result is True
 
 
+async def test_cleanup_removed_entities(hass: HomeAssistant) -> None:
+    """Obsolete fan entity and RPM sensors are removed; current entities kept."""
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.quilt_hp import _async_cleanup_removed_entities
+    from custom_components.quilt_hp.const import DOMAIN
+
+    entry = MockConfigEntry(domain=DOMAIN, data={"email": "a@b.com"})
+    entry.add_to_hass(hass)
+    reg = er.async_get(hass)
+
+    fan = reg.async_get_or_create(
+        "fan", DOMAIN, "quilt_idu_fan_idu-1", config_entry=entry
+    )
+    rpm = reg.async_get_or_create(
+        "sensor", DOMAIN, "quilt_idu_idu-1_fan_speed_rpm", config_entry=entry
+    )
+    setpoint = reg.async_get_or_create(
+        "sensor", DOMAIN, "quilt_idu_idu-1_fan_speed_setpoint_rpm", config_entry=entry
+    )
+    speed_select = reg.async_get_or_create(
+        "select", DOMAIN, "quilt_idu_fan_speed_idu-1", config_entry=entry
+    )
+    humidity = reg.async_get_or_create(
+        "sensor", DOMAIN, "quilt_idu_idu-1_ambient_humidity", config_entry=entry
+    )
+
+    _async_cleanup_removed_entities(hass, entry)
+
+    assert reg.async_get(fan.entity_id) is None
+    assert reg.async_get(rpm.entity_id) is None
+    assert reg.async_get(setpoint.entity_id) is None
+    assert reg.async_get(speed_select.entity_id) is not None
+    assert reg.async_get(humidity.entity_id) is not None
+
+
 async def test_async_migrate_entry_v1(hass: HomeAssistant) -> None:
     """Test migration for v1 (no-op)."""
     from custom_components.quilt_hp import async_migrate_entry

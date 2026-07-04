@@ -1,4 +1,4 @@
-"""Select platform for Quilt Heat Pump — louver mode and angle per IndoorUnit."""
+"""Select platform for Quilt Heat Pump — fan speed and louver controls per IDU."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from quilt_hp.models.enums import LouverAngle, LouverMode
+from quilt_hp.models.enums import FanSpeed, LouverAngle, LouverMode
 
 from .coordinator import QuiltCoordinator
 from .entity import QuiltIDUEntity, async_setup_dynamic_entities
@@ -18,6 +18,21 @@ if TYPE_CHECKING:
 
 # Limit concurrent updates to avoid overwhelming the device
 PARALLEL_UPDATES = 1
+
+# Quilt fan speeds. AUTO (the HVAC system chooses the speed) is the default;
+# there is no "off" — the fan is always in one of these modes.
+_STR_TO_FAN_SPEED: dict[str, FanSpeed] = {
+    "auto": FanSpeed.AUTO,
+    "quiet": FanSpeed.QUIET,
+    "low": FanSpeed.LOW,
+    "medium": FanSpeed.MEDIUM,
+    "high": FanSpeed.HIGH,
+    "blast": FanSpeed.BLAST,
+}
+
+_FAN_SPEED_TO_STR: dict[FanSpeed, str] = {v: k for k, v in _STR_TO_FAN_SPEED.items()}
+
+_FAN_SPEED_OPTIONS: list[str] = list(_STR_TO_FAN_SPEED)
 
 _STR_TO_LOUVER_MODE: dict[str, LouverMode] = {
     "closed": LouverMode.CLOSED,
@@ -60,11 +75,39 @@ async def async_setup_entry(
         for idu in coordinator.data.indoor_units:
             if idu.id in known:
                 continue
+            new.append((idu.id, QuiltFanSpeedSelect(coordinator, idu.id)))
             new.append((idu.id, QuiltLouverModeSelect(coordinator, idu.id)))
             new.append((idu.id, QuiltLouverAngleSelect(coordinator, idu.id)))
         return new
 
     async_setup_dynamic_entities(entry, coordinator, async_add_entities, _build_new)
+
+
+class QuiltFanSpeedSelect(QuiltIDUEntity, SelectEntity):
+    """Select entity for indoor unit fan speed.
+
+    Quilt's fan is always running in one of these modes; ``auto`` lets the
+    HVAC system choose the speed. There is no "off" state.
+    """
+
+    _attr_options: list[str] = _FAN_SPEED_OPTIONS
+    _attr_translation_key: str = "fan_speed"
+
+    def __init__(self, coordinator: QuiltCoordinator, idu_id: str) -> None:
+        """Initialize the fan speed select entity."""
+        super().__init__(coordinator, idu_id)
+        self._attr_unique_id: str = f"quilt_idu_fan_speed_{idu_id}"
+
+    @property
+    @override
+    def current_option(self) -> str | None:
+        return _FAN_SPEED_TO_STR.get(self._idu.controls.fan_speed)
+
+    @override
+    async def async_select_option(self, option: str) -> None:
+        fan_speed = _STR_TO_FAN_SPEED[option]
+        await self.coordinator.async_set_indoor_unit(self._idu, fan_speed=fan_speed)
+        await self._async_refresh_if_not_streaming()
 
 
 class QuiltLouverModeSelect(QuiltIDUEntity, SelectEntity):

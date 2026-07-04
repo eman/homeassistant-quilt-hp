@@ -3,7 +3,7 @@
 Provides sensor entities for:
 - Space: space temperature (space-calibrated), active comfort setting
 - QSM/IDU: unit temp, humidity,
-           fan RPM, inlet/outlet temp, presence level,
+           inlet/outlet temp, presence level,
            COP, HVAC capacity (W), HVAC power (W), LED power (W),
            coil/gas-pipe/liquid-pipe temperatures, inlet humidity,
            module power, calibrated ambient temp, radar signals, illuminance
@@ -32,7 +32,6 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     LIGHT_LUX,
     PERCENTAGE,
-    REVOLUTIONS_PER_MINUTE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
     UnitOfEnergy,
@@ -146,23 +145,6 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         value_fn=lambda idu: normalize_float(idu.state.ambient_humidity_percent),
-    ),
-    IDUSensorDescription(
-        key="fan_speed_rpm",
-        translation_key="fan_speed",
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=REVOLUTIONS_PER_MINUTE,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda idu: normalize_float(idu.state.fan_speed_rpm),
-    ),
-    IDUSensorDescription(
-        key="fan_speed_setpoint_rpm",
-        translation_key="fan_speed_setpoint",
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=REVOLUTIONS_PER_MINUTE,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda idu: normalize_float(idu.state.fan_speed_setpoint_rpm),
-        entity_registry_enabled_default=False,
     ),
     IDUSensorDescription(
         key="inlet_temperature",

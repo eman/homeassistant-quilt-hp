@@ -15,12 +15,9 @@
     stream; non-gRPC failures reconnect instead of dying silently)
 - Stream health is now tracked via the library's new `on_connected` callback instead of
   being inferred from incoming entity events
-- Sensor, binary sensor, fan preset, and louver angle names now use translation keys
-  with HA sentence-case naming (e.g. "Fan speed", "Wi-Fi signal"); the comms-health
+- Sensor, binary sensor, and louver angle names now use translation keys
+  with HA sentence-case naming (e.g. "Wi-Fi signal"); the comms-health
   sensor is a proper `ENUM` sensor with translated states
-- Fan: *Auto* is no longer offered as a preset mode; it is modelled as the fan's "off"
-  state (HA's fan model treats an active preset as "on", which contradicted Auto
-  reporting as off). Presets are now Quiet/Low/Medium/High/Blast
 - Louver angle select options are now lowercase translated keys (`horizontal`,
   `slightly_down`, `down`, `mostly_down`, `straight_down`) instead of raw enum names
 - Entity service actions now raise `HomeAssistantError` when a Quilt API call fails
@@ -43,6 +40,9 @@
   to a room; the profile's configured name is exposed as the `comfort_setting_name`
   attribute. This replaces the removed climate preset control with a read-only,
   non-misleading view of the same state.
+- Indoor unit fan speed is now a **`select`** entity (Auto / Quiet / Low / Medium / High /
+  Blast). Quilt's fan is always in one of these modes — there is no "off" — so a select
+  models it correctly, unlike a fan entity's on/off toggle.
 - Exception translations: entity action failures and re-authentication errors now use
   translatable messages (`exceptions` section in `strings.json`)
 - README: use cases and automation examples (presence-based setback, schedule
@@ -60,6 +60,12 @@
 - Removal instructions in the README
 
 ### Removed
+- The `fan` platform / fan entity. The indoor unit fan cannot be turned off, so an HA fan
+  entity (which forces on/off semantics and previously faked "off" = Auto) was misleading.
+  Fan speed is now a `select` entity (see Added).
+- The **Fan speed (RPM)** and **Fan speed setpoint (RPM)** diagnostic sensors. Raw fan RPM
+  is a low-level reading; the meaningful fan speed (the `FanSpeed` enum) is surfaced by the
+  new fan speed select.
 - Climate preset support (`ClimateEntityFeature.PRESET_MODE`). Quilt's comfort settings
   (Active/Sleep/Away/Standby/Custom) are internal schedule states applied automatically
   by Quilt's scheduler, not user-selectable presets, so exposing them as HA presets was

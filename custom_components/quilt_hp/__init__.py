@@ -8,7 +8,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from quilt_hp.exceptions import QuiltAuthError
 from quilt_hp.models.system import SystemSnapshot
@@ -80,6 +80,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: QuiltConfigEntry) -> boo
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    _async_cleanup_removed_entities(hass, entry)
     _async_cleanup_stale_devices(hass, entry, coordinator.data)
 
     async def _async_reload_on_options_update(
@@ -94,6 +95,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: QuiltConfigEntry) -> boo
 async def async_unload_entry(hass: HomeAssistant, entry: QuiltConfigEntry) -> bool:
     """Unload a Quilt Heat Pump config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+@callback
+def _async_cleanup_removed_entities(
+    hass: HomeAssistant, entry: QuiltConfigEntry
+) -> None:
+    """Remove registry entries for entities this integration no longer provides.
+
+    Covers the former ``fan`` entity (fan speed is now a ``select``) and the raw
+    fan-speed RPM sensors, so upgrading installs don't keep orphaned
+    "unavailable" entities.
+    """
+
+    def _is_obsolete(unique_id: str) -> bool:
+        if unique_id.startswith("quilt_idu_fan_") and not unique_id.startswith(
+            "quilt_idu_fan_speed_"
+        ):
+            return True
+        return unique_id.endswith(("_fan_speed_rpm", "_fan_speed_setpoint_rpm"))
+
+    entity_registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if _is_obsolete(entity.unique_id):
+            entity_registry.async_remove(entity.entity_id)
 
 
 @callback

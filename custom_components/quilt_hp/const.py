@@ -12,7 +12,6 @@ CONF_POLLING_INTERVAL = "polling_interval"
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.CLIMATE,
-    Platform.FAN,
     Platform.LIGHT,
     Platform.SELECT,
     Platform.SENSOR,

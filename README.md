@@ -17,11 +17,11 @@ For protocol details, streaming behavior, and the full client feature set, see t
 ## Features
 
 - **Climate entities** — control HVAC mode and setpoints for each Quilt space (room)
-- **Sensor entities** — ambient temperature, humidity, fan speed, inlet/outlet temps,
+- **Sensor entities** — ambient temperature, humidity, inlet/outlet temps,
   presence level, COP, HVAC power, compressor data, and per-space energy
-- **Fan entities** — set indoor unit fan speed (Auto / Quiet / Low / Medium / High / Blast)
 - **Light entities** — toggle and dim indoor unit LED, set RGBW color and animation effect
-- **Select entities** — louver mode (Closed / Sweep / Fixed / Auto) and fixed angle
+- **Select entities** — fan speed (Auto / Quiet / Low / Medium / High / Blast), louver mode
+  (Closed / Sweep / Fixed / Auto), and fixed louver angle
 - **Binary sensor entities** — motion, presence, occupancy, and connectivity status per IDU
 - **Switch entities** — pause or resume all Quilt schedules for a location
 - **Real-time updates** — powered by Quilt's bidirectional gRPC stream with auto-reconnect
@@ -169,20 +169,18 @@ selected from Home Assistant.
 
 ### Per Indoor Unit (IDU)
 
-The **fan** entity models Quilt's *Auto* fan mode as "off": when the fan entity is off,
-the HVAC system controls the fan speed automatically. Turning the fan on engages an
-explicit speed (Quiet/Low/Medium/High/Blast, also available as preset modes), and
-turning it off returns the fan to automatic control.
+The **Fan speed** select controls the indoor unit fan: **Auto** (the HVAC system chooses
+the speed) plus explicit **Quiet / Low / Medium / High / Blast** speeds. Quilt's fan has no
+"off" state — it is always in one of these modes.
 
 | Entity | Platform | Default |
 |---|---|---|
-| Fan | `fan` | Enabled |
+| Fan speed | `select` | Enabled |
 | LED | `light` | Enabled |
 | Louver mode | `select` | Enabled |
 | Louver angle | `select` | Enabled |
 | Temperature (IDU sensor) | `sensor` | Enabled |
 | Humidity | `sensor` | Enabled |
-| Fan speed | `sensor` | Enabled |
 | Motion | `binary_sensor` | Enabled |
 | Presence | `binary_sensor` | Enabled |
 | Occupied | `binary_sensor` | Enabled |

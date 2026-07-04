@@ -95,28 +95,23 @@
         "name": "Online"
       }
     },
-    "fan": {
-      "fan": {
-        "name": "Fan",
-        "state_attributes": {
-          "preset_mode": {
-            "state": {
-              "quiet": "Quiet",
-              "low": "Low",
-              "medium": "Medium",
-              "high": "High",
-              "blast": "Blast"
-            }
-          }
-        }
-      }
-    },
     "light": {
       "led": {
         "name": "LED"
       }
     },
     "select": {
+      "fan_speed": {
+        "name": "Fan speed",
+        "state": {
+          "auto": "Auto",
+          "quiet": "Quiet",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High",
+          "blast": "Blast"
+        }
+      },
       "louver_mode": {
         "name": "Louver mode",
         "state": {
@@ -156,12 +151,6 @@
       },
       "humidity": {
         "name": "Humidity"
-      },
-      "fan_speed": {
-        "name": "Fan speed"
-      },
-      "fan_speed_setpoint": {
-        "name": "Fan speed setpoint"
       },
       "inlet_temperature": {
         "name": "Inlet temperature"

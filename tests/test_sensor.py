@@ -136,18 +136,6 @@ def test_idu_humidity(coordinator) -> None:
     assert entity.native_value == 45.0
 
 
-def test_idu_fan_rpm(coordinator) -> None:
-    desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "fan_speed_rpm")
-    entity = QuiltIDUSensor(coordinator, "idu-001", desc)
-    assert entity.native_value == 800.0
-
-
-def test_idu_fan_speed_setpoint_rpm(coordinator) -> None:
-    desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "fan_speed_setpoint_rpm")
-    entity = QuiltIDUSensor(coordinator, "idu-001", desc)
-    assert entity.native_value == 820.0
-
-
 def test_idu_coil_temperature_none_when_no_perf_data(coordinator) -> None:
     desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "coil_temperature")
     entity = QuiltIDUSensor(coordinator, "idu-001", desc)

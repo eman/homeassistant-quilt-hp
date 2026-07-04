@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from quilt_hp.models.enums import LouverAngle, LouverMode
+from quilt_hp.models.enums import FanSpeed, LouverAngle, LouverMode
 
 from custom_components.quilt_hp.const import DOMAIN
 from custom_components.quilt_hp.select import (
+    QuiltFanSpeedSelect,
     QuiltLouverAngleSelect,
     QuiltLouverModeSelect,
 )
@@ -28,6 +29,43 @@ def coordinator_fixed(hass):
     )
     snapshot = make_snapshot(indoor_units=[idu])
     return make_mock_coordinator(hass, snapshot)
+
+
+# ── Fan speed ─────────────────────────────────────────────────────────────────
+
+
+def test_fan_speed_options(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[make_idu()]))
+    entity = QuiltFanSpeedSelect(coordinator, "idu-001")
+    assert entity.options == ["auto", "quiet", "low", "medium", "high", "blast"]
+
+
+def test_fan_speed_current_option_auto(hass) -> None:
+    idu = make_idu(fan_speed=FanSpeed.AUTO)
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[idu]))
+    entity = QuiltFanSpeedSelect(coordinator, "idu-001")
+    assert entity.current_option == "auto"
+
+
+def test_fan_speed_current_option_speed(hass) -> None:
+    idu = make_idu(fan_speed=FanSpeed.MEDIUM)
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[idu]))
+    entity = QuiltFanSpeedSelect(coordinator, "idu-001")
+    assert entity.current_option == "medium"
+
+
+async def test_fan_speed_select(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[make_idu()]))
+    entity = QuiltFanSpeedSelect(coordinator, "idu-001")
+    await entity.async_select_option("high")
+    call_kwargs = coordinator.async_set_indoor_unit.call_args[1]
+    assert call_kwargs["fan_speed"] == FanSpeed.HIGH
+
+
+def test_fan_speed_unique_id(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[make_idu()]))
+    entity = QuiltFanSpeedSelect(coordinator, "idu-001")
+    assert entity.unique_id == "quilt_idu_fan_speed_idu-001"
 
 
 # ── Louver mode ───────────────────────────────────────────────────────────────

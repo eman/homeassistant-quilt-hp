@@ -80,7 +80,7 @@ class QuiltIDUEntity(QuiltEntity):
     """Entity backed by an IndoorUnit, shown on the IDU device.
 
     Provides the IDU lookup, device info, and availability handling shared
-    by the fan, light, select, sensor, and binary sensor platforms.
+    by the light, select, sensor, and binary sensor platforms.
     """
 
     def __init__(self, coordinator: QuiltCoordinator, idu_id: str) -> None:
