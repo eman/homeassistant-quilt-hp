@@ -35,6 +35,11 @@
   error codes are re-enabled
 
 ### Added
+- Climate **Away preset** (`PRESET_AWAY`). Reflects Quilt's occupancy away state — set
+  automatically when a room is unoccupied or from the Quilt app — and can now be toggled
+  from the HA thermostat. Selecting *Away* activates the room's Away comfort setting;
+  clearing it restores the room's Active (normal occupied) setting (Quilt may re-enter
+  away automatically while the room stays unoccupied).
 - Per-space **Active comfort setting** diagnostic sensor (`ENUM`: active/sleep/away/
   standby/custom) reporting which comfort profile Quilt's scheduler is currently applying
   to a room; the profile's configured name is exposed as the `comfort_setting_name`
@@ -66,11 +71,12 @@
 - The **Fan speed (RPM)** and **Fan speed setpoint (RPM)** diagnostic sensors. Raw fan RPM
   is a low-level reading; the meaningful fan speed (the `FanSpeed` enum) is surfaced by the
   new fan speed select.
-- Climate preset support (`ClimateEntityFeature.PRESET_MODE`). Quilt's comfort settings
-  (Active/Sleep/Away/Standby/Custom) are internal schedule states applied automatically
-  by Quilt's scheduler, not user-selectable presets, so exposing them as HA presets was
-  misleading. Setpoint display still falls back to the active comfort setting's values
-  when the API returns placeholder setpoints.
+- The multi-entry climate preset list. Quilt's comfort settings (Active/Sleep/Away/
+  Standby/Custom) are mostly internal schedule states applied automatically by Quilt's
+  scheduler, not user-selectable presets, so exposing them all as HA presets was
+  misleading. Only **Away** — a genuine user-facing state — is now exposed, as
+  `PRESET_AWAY` (see Added). Setpoint display still falls back to the active comfort
+  setting's values when the API returns placeholder setpoints.
 
 ### Fixed
 - Control writes (LED on/off, fan speed, louver, climate setpoints/mode) now update the

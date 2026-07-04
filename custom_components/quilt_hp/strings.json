@@ -262,6 +262,9 @@
     },
     "auth_failed": {
       "message": "Quilt authentication failed. Please re-authenticate."
+    },
+    "unknown_preset": {
+      "message": "Cannot set preset {preset} for this room."
     }
   }
 }

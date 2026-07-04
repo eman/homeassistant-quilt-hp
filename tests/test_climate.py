@@ -5,12 +5,16 @@ from __future__ import annotations
 import math
 
 from homeassistant.components.climate import (
+    PRESET_AWAY,
+    PRESET_NONE,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
 )
+from homeassistant.exceptions import ServiceValidationError
 import pytest
 from quilt_hp.models.enums import (
+    ComfortSettingType,
     HVACMode as QHVACMode,
     HVACState as QHVACState,
 )
@@ -220,6 +224,7 @@ def test_supported_features_include_turn_on_off(coordinator) -> None:
     features = _entity(coordinator).supported_features
     assert features & ClimateEntityFeature.TURN_ON
     assert features & ClimateEntityFeature.TURN_OFF
+    assert features & ClimateEntityFeature.PRESET_MODE
 
 
 def test_unique_id(coordinator) -> None:
@@ -260,3 +265,94 @@ def test_unavailable_when_coordinator_failed(coordinator) -> None:
     entity = _entity(coordinator)
     coordinator.last_update_success = False
     assert entity.available is False
+
+
+# ── Away preset ───────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def away_coordinator(hass):
+    """Return a room in away mode with Away and Active comfort settings."""
+    space = make_space(hvac_mode=QHVACMode.HEAT)
+    space.active_comfort_setting_type = ComfortSettingType.AWAY
+    settings = [
+        make_comfort_setting(
+            cs_id="cs-away",
+            name="Away",
+            cs_type=ComfortSettingType.AWAY,
+            hvac_mode=QHVACMode.AUTO,
+            heat_setpoint_c=16.0,
+            cool_setpoint_c=28.0,
+        ),
+        make_comfort_setting(
+            cs_id="cs-active",
+            name="Active",
+            cs_type=ComfortSettingType.ACTIVE,
+            hvac_mode=QHVACMode.HEAT,
+            heat_setpoint_c=21.0,
+            cool_setpoint_c=24.0,
+        ),
+    ]
+    snapshot = make_snapshot(spaces=[space], comfort_settings=settings)
+    return make_mock_coordinator(hass, snapshot)
+
+
+def test_preset_modes(coordinator) -> None:
+    assert _entity(coordinator).preset_modes == [PRESET_NONE, PRESET_AWAY]
+
+
+def test_preset_mode_none_when_not_away(coordinator) -> None:
+    assert _entity(coordinator).preset_mode == PRESET_NONE
+
+
+def test_preset_mode_away_when_away(away_coordinator) -> None:
+    assert _entity(away_coordinator).preset_mode == PRESET_AWAY
+
+
+async def test_set_preset_away_applies_away_comfort_setting(coordinator) -> None:
+    away_cs = make_comfort_setting(
+        cs_id="cs-away",
+        cs_type=ComfortSettingType.AWAY,
+        hvac_mode=QHVACMode.AUTO,
+        heat_setpoint_c=16.0,
+        cool_setpoint_c=28.0,
+    )
+    coordinator.cs_by_space_id = {"space-001": [away_cs]}
+
+    await _entity(coordinator).async_set_preset_mode(PRESET_AWAY)
+
+    coordinator.async_set_space.assert_awaited_once()
+    sent_space = coordinator.async_set_space.call_args[0][0]
+    kwargs = coordinator.async_set_space.call_args[1]
+    assert sent_space.controls.comfort_setting_id == "cs-away"
+    assert kwargs["mode"] == QHVACMode.AUTO
+    assert kwargs["heat_setpoint_c"] == 16.0
+    assert kwargs["cool_setpoint_c"] == 28.0
+
+
+async def test_set_preset_none_while_away_restores_active(away_coordinator) -> None:
+    await _entity(away_coordinator).async_set_preset_mode(PRESET_NONE)
+
+    away_coordinator.async_set_space.assert_awaited_once()
+    sent_space = away_coordinator.async_set_space.call_args[0][0]
+    kwargs = away_coordinator.async_set_space.call_args[1]
+    assert sent_space.controls.comfort_setting_id == "cs-active"
+    assert kwargs["mode"] == QHVACMode.HEAT
+
+
+async def test_set_preset_none_when_not_away_is_noop(coordinator) -> None:
+    await _entity(coordinator).async_set_preset_mode(PRESET_NONE)
+    coordinator.async_set_space.assert_not_awaited()
+
+
+async def test_set_preset_away_missing_setting_raises(coordinator) -> None:
+    coordinator.cs_by_space_id = {"space-001": []}
+    with pytest.raises(ServiceValidationError):
+        await _entity(coordinator).async_set_preset_mode(PRESET_AWAY)
+    coordinator.async_set_space.assert_not_awaited()
+
+
+async def test_set_preset_unsupported_raises(coordinator) -> None:
+    with pytest.raises(ServiceValidationError):
+        await _entity(coordinator).async_set_preset_mode("sleep")
+    coordinator.async_set_space.assert_not_awaited()

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.climate import (
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
+    PRESET_AWAY,
+    PRESET_NONE,
     ClimateEntity,
     ClimateEntityFeature,
     HVACAction,
@@ -15,16 +18,19 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from quilt_hp.models.comfort import ComfortSetting
 from quilt_hp.models.enums import (
+    ComfortSettingType,
     HVACMode as QHVACMode,
     HVACState as QHVACState,
 )
 from quilt_hp.models.space import Space
 
+from .const import DOMAIN
 from .coordinator import QuiltCoordinator
 from .entity import QuiltEntity, async_setup_dynamic_entities, idu_device_info
 from .utils import normalize_float
@@ -36,6 +42,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # Limit concurrent updates to avoid overwhelming the device
 PARALLEL_UPDATES = 1
+
+_PRESET_MODES: list[str] = [PRESET_NONE, PRESET_AWAY]
 
 # ── Mode maps ─────────────────────────────────────────────────────────────────
 
@@ -102,9 +110,14 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
     _attr_supported_features: ClimateEntityFeature = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        | ClimateEntityFeature.PRESET_MODE
         | ClimateEntityFeature.TURN_ON
         | ClimateEntityFeature.TURN_OFF
     )
+    # Only Away is exposed as an HA preset: it is a real user-facing Quilt
+    # state (set by occupancy automation or the app), unlike the other comfort
+    # settings which are schedule-internal.
+    _attr_preset_modes: list[str] = _PRESET_MODES
     # Quilt supports setpoints from 10 °C (safety heating floor) to 32 °C.
     _attr_min_temp: float = 10.0
     _attr_max_temp: float = 32.0
@@ -264,5 +277,74 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
             self._space,
             heat_setpoint_c=heat_sp,
             cool_setpoint_c=cool_sp,
+        )
+        await self._async_refresh_if_not_streaming()
+
+    # ------------------------------------------------------------------
+    # Away preset — Quilt's occupancy "away" state, toggleable from HA
+    # ------------------------------------------------------------------
+
+    def _comfort_setting_of_type(
+        self, cs_type: ComfortSettingType
+    ) -> ComfortSetting | None:
+        """Return this space's comfort setting of *cs_type*, if any."""
+        return next(
+            (
+                cs
+                for cs in self.coordinator.cs_by_space_id.get(self._space_id, [])
+                if cs.type is cs_type
+            ),
+            None,
+        )
+
+    @property
+    @override
+    def preset_mode(self) -> str:
+        """Return PRESET_AWAY when the room is in away mode, else PRESET_NONE."""
+        return PRESET_AWAY if self._space.is_away else PRESET_NONE
+
+    @override
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Enter or leave away mode by activating the matching comfort setting.
+
+        Selecting *away* activates the room's Away comfort setting (the same
+        state occupancy automation or the Quilt app sets). Selecting *none*
+        while away restores the room's Active (normal occupied) comfort
+        setting; Quilt may re-enter away automatically if the room stays
+        unoccupied.
+        """
+        if preset_mode == PRESET_AWAY:
+            target = self._comfort_setting_of_type(ComfortSettingType.AWAY)
+        elif preset_mode == PRESET_NONE:
+            if not self._space.is_away:
+                return
+            target = self._comfort_setting_of_type(ComfortSettingType.ACTIVE)
+        else:
+            raise ServiceValidationError(
+                f"Unsupported preset {preset_mode!r} for space {self._space_id}",
+                translation_domain=DOMAIN,
+                translation_key="unknown_preset",
+                translation_placeholders={"preset": preset_mode},
+            )
+
+        if target is None:
+            raise ServiceValidationError(
+                f"No comfort setting available to apply preset {preset_mode!r}",
+                translation_domain=DOMAIN,
+                translation_key="unknown_preset",
+                translation_placeholders={"preset": preset_mode},
+            )
+
+        # set_space preserves the space's comfort_setting_id, so point it at the
+        # target comfort setting and send that setting's mode and setpoints.
+        target_space = replace(
+            self._space,
+            controls=replace(self._space.controls, comfort_setting_id=target.id),
+        )
+        await self.coordinator.async_set_space(
+            target_space,
+            mode=target.hvac_mode,
+            heat_setpoint_c=target.heating_setpoint_c,
+            cool_setpoint_c=target.cooling_setpoint_c,
         )
         await self._async_refresh_if_not_streaming()

@@ -159,7 +159,11 @@ default to reduce noise; enable them individually in the HA entity registry.
 | Active comfort setting | `sensor` | Enabled (diagnostic) |
 
 The climate entity supports the following HVAC modes: **Off**, **Cool**, **Heat**,
-**Heat/Cool** (auto), **Fan only**, **Dry**.
+**Heat/Cool** (auto), **Fan only**, **Dry**. It also exposes an **Away** preset that
+mirrors Quilt's occupancy away state — set automatically when a room is unoccupied or from
+the Quilt app — and can be toggled from the thermostat. Turning Away off restores the
+room's normal (Active) target; Quilt may re-enter away automatically while the room stays
+unoccupied.
 
 The **Active comfort setting** sensor reports which comfort profile Quilt's scheduler is
 currently applying to the room (**Active**, **Sleep**, **Away**, **Standby**, or
