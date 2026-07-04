@@ -73,6 +73,12 @@
   when the API returns placeholder setpoints.
 
 ### Fixed
+- Control writes (LED on/off, fan speed, louver, climate setpoints/mode) now update the
+  entity state immediately from the write's return value instead of waiting for the next
+  stream push. A controls-only change is not always echoed on the notifier stream, so
+  toggling the LED light (and other controls) could appear to do nothing while streaming.
+- Turning the indoor unit LED on when its stored color was black (color code 0) now
+  defaults to white, so the light actually illuminates instead of staying dark.
 - Fallback polling never refreshed the coordinator's entity lookup indexes, so all
   entities froze at their last streamed state whenever the stream was down and only
   recovered on the next push

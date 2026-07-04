@@ -138,6 +138,22 @@ async def test_turn_on_keeps_brightness_when_already_on(coordinator) -> None:
     assert call_kwargs["led_brightness"] is None
 
 
+async def test_turn_on_defaults_white_when_color_zero(off_coordinator) -> None:
+    """Turning on an LED whose color is 0 must set a visible (white) color."""
+    entity = _entity(off_coordinator)
+    await entity.async_turn_on()
+    call_kwargs = off_coordinator.async_set_indoor_unit.call_args[1]
+    assert call_kwargs["led_color_code"] == 0xFFFFFFFF
+
+
+async def test_turn_on_keeps_color_when_already_on(coordinator) -> None:
+    """turn_on on an already-on LED must not override its color."""
+    entity = _entity(coordinator)
+    await entity.async_turn_on()
+    call_kwargs = coordinator.async_set_indoor_unit.call_args[1]
+    assert call_kwargs["led_color_code"] is None
+
+
 async def test_turn_off(coordinator) -> None:
     entity = _entity(coordinator)
     await entity.async_turn_off()

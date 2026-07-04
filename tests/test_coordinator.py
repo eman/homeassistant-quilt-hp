@@ -328,6 +328,38 @@ async def test_restart_stream_auth_failure_starts_reauth(
 # ── Auth retry ────────────────────────────────────────────────────────────────
 
 
+async def test_set_indoor_unit_applies_result_to_snapshot(
+    hass: HomeAssistant, mock_client
+) -> None:
+    """The write result is merged into the snapshot so entities update at once."""
+    client, _stream = mock_client
+    coordinator = QuiltCoordinator(hass, make_entry_mock(), "user@example.com")
+    await coordinator.async_setup()
+
+    updated = make_idu(led_color_code=0x11223344)
+    client.set_indoor_unit = AsyncMock(return_value=updated)
+
+    await coordinator.async_set_indoor_unit(make_idu(), led_brightness=1.0)
+
+    coordinator.data.apply_indoor_unit.assert_called_once_with(updated)
+
+
+async def test_set_space_applies_result_to_snapshot(
+    hass: HomeAssistant, mock_client
+) -> None:
+    """The write result is merged into the snapshot so entities update at once."""
+    client, _stream = mock_client
+    coordinator = QuiltCoordinator(hass, make_entry_mock(), "user@example.com")
+    await coordinator.async_setup()
+
+    updated = make_space()
+    client.set_space = AsyncMock(return_value=updated)
+
+    await coordinator.async_set_space(make_space(), mode=None)
+
+    coordinator.data.apply_space.assert_called_once_with(updated)
+
+
 async def test_auth_retry_success_after_relogin(
     hass: HomeAssistant, mock_client
 ) -> None:

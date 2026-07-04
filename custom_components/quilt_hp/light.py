@@ -132,6 +132,15 @@ class QuiltLightEntity(QuiltIDUEntity, LightEntity):
         if target_brightness is None and not self._idu.led_on:
             target_brightness = 1.0
 
+        # A zero color code renders no light regardless of brightness, so when
+        # turning the LED on without an explicit color, fall back to white.
+        if (
+            color_code is None
+            and not self._idu.led_on
+            and self._idu.controls.led_color_code == 0
+        ):
+            color_code = _encode_rgbw(255, 255, 255, 255)
+
         await self.coordinator.async_set_indoor_unit(
             self._idu,
             led_brightness=target_brightness,

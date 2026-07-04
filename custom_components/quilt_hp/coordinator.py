@@ -170,16 +170,37 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         return self._stream is not None and self._stream.is_connected
 
     async def async_set_space(self, space: Space, **kwargs: Any) -> Space:
-        """Set space fields with one transparent auth-refresh retry."""
-        return await self._write(lambda: self._client.set_space(space, **kwargs))
+        """Set space fields with one transparent auth-refresh retry.
+
+        The returned (full) Space is merged into the snapshot and pushed to
+        entities immediately, so the UI reflects the change without waiting
+        for the next stream push — a controls-only change may otherwise not be
+        echoed on the notifier stream, making a write appear to have no effect.
+        """
+        result = await self._write(lambda: self._client.set_space(space, **kwargs))
+        if self.data:
+            _ = self.data.apply_space(result)
+            self.async_set_updated_data(self.data)
+        return result
 
     async def async_set_indoor_unit(
         self, indoor_unit: IndoorUnit, **kwargs: Any
     ) -> IndoorUnit:
-        """Set indoor unit fields with one transparent auth-refresh retry."""
-        return await self._write(
+        """Set indoor unit fields with one transparent auth-refresh retry.
+
+        The returned (full) IndoorUnit is merged into the snapshot and pushed
+        to entities immediately, so the UI reflects the change without waiting
+        for the next stream push — a controls-only change (e.g. LED/fan/louver)
+        may otherwise not be echoed on the notifier stream, making a write
+        appear to have no effect.
+        """
+        result = await self._write(
             lambda: self._client.set_indoor_unit(indoor_unit, **kwargs)
         )
+        if self.data:
+            _ = self.data.apply_indoor_unit(result)
+            self.async_set_updated_data(self.data)
+        return result
 
     async def async_set_schedule_execution(self, *, paused: bool) -> None:
         """Pause or resume all schedules with one transparent auth-refresh retry."""
