@@ -167,8 +167,12 @@ def idu_device_info(idu: IndoorUnit, space: Space | None = None) -> DeviceInfo:
         identifiers={(DOMAIN, f"i_{idu.id}")},
         name=name,
         manufacturer=_MANUFACTURER,
-        model="Indoor Unit",
+        model=_clean(idu.model_sku) or "Indoor Unit",
     )
+    if _clean(idu.serial_number):
+        info["serial_number"] = idu.serial_number
+    if _clean(idu.firmware_version):
+        info["sw_version"] = idu.firmware_version
     if space is not None:
         info["suggested_area"] = space.name
     return info

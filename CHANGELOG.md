@@ -3,7 +3,11 @@
 ## [Unreleased]
 
 ### Changed
-- Upgraded `quilt-hp-python` dependency to `>=0.5.5`
+- Upgraded `quilt-hp-python` dependency to `>=0.5.6`
+  - 0.5.6 resolves `IndoorUnit` hardware exposure
+    ([quilt-hp-python#19](https://github.com/eman/quilt-hp-python/issues/19)): indoor
+    units now carry `serial_number`, `firmware_version`, and `model_sku` (resolved from
+    `indoor_unit_hardware`, previously discarded)
   - Routine hourly token refresh on unary RPCs is now logged at `INFO` instead of
     `WARNING` ([quilt-hp-python#13](https://github.com/eman/quilt-hp-python/issues/13))
   - Includes all 0.5.4 fixes: proto3 absence detection (sparse stream diffs no longer
@@ -35,6 +39,8 @@
   error codes are re-enabled
 
 ### Added
+- Indoor unit device cards now show the **serial number** and **firmware version**
+  (from `quilt-hp-python` 0.5.6), matching the outdoor unit and controller.
 - Climate **Away preset** (`PRESET_AWAY`). Reflects Quilt's occupancy away state — set
   automatically when a room is unoccupied or from the Quilt app — and can now be toggled
   from the HA thermostat. Selecting *Away* activates the room's Away comfort setting;

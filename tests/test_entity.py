@@ -96,8 +96,19 @@ async def test_idu_device_info_with_name(hass) -> None:
     assert info["name"] == "Master Bedroom IDU"
     assert info["manufacturer"] == "Quilt"
     assert info["model"] == "Indoor Unit"
+    assert info["serial_number"] == "QS1-IDU0001"
+    assert info["sw_version"] == "43"
     assert info["suggested_area"] == "Master Bedroom"
     assert ("quilt_hp", f"i_{idu.id}") in info["identifiers"]
+
+
+async def test_idu_device_info_omits_missing_hardware(hass) -> None:
+    """Serial/firmware are omitted when the hardware map had no data."""
+    idu = make_idu(serial_number=None, firmware_version=None, model_sku="N/A")
+    info = idu_device_info(idu, make_space())
+    assert "serial_number" not in info
+    assert "sw_version" not in info
+    assert info["model"] == "Indoor Unit"
 
 
 async def test_idu_device_info_without_name(hass) -> None:

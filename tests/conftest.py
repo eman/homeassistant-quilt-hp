@@ -89,6 +89,9 @@ def make_idu(
     led_on: bool = True,
     led_brightness: float = 0.8,
     led_color_code: int = 0xFF460064,
+    serial_number: str | None = "QS1-IDU0001",
+    firmware_version: str | None = "43",
+    model_sku: str | None = None,
 ) -> IndoorUnit:
     return IndoorUnit(
         id=idu_id,
@@ -131,6 +134,9 @@ def make_idu(
         performance_metrics=None,
         presence=None,
         occupancy=None,
+        serial_number=serial_number,
+        firmware_version=firmware_version,
+        model_sku=model_sku,
     )
 
 
