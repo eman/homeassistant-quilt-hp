@@ -134,6 +134,27 @@ async def test_idu_device_info_no_space(hass) -> None:
     assert "suggested_area" not in info
 
 
+async def test_idu_device_info_prefers_room_over_serial_default(hass) -> None:
+    """A serial-based default IDU name is replaced by the room name."""
+    idu = make_idu(serial_number="QS1-ABC123")
+    idu.settings.name = "Indoor Unit QS1-ABC123"
+    space = make_space(name="Family Room")
+
+    info = idu_device_info(idu, space)
+
+    assert info["name"] == "Family Room Indoor Unit"
+
+
+async def test_idu_device_info_keeps_serial_default_without_space(hass) -> None:
+    """Without a room, a serial-default name is kept rather than dropped."""
+    idu = make_idu(serial_number="QS1-ABC123")
+    idu.settings.name = "Indoor Unit QS1-ABC123"
+
+    info = idu_device_info(idu, None)
+
+    assert info["name"] == "Indoor Unit QS1-ABC123"
+
+
 async def test_odu_device_info(hass) -> None:
     """Test ODU device info."""
     odu = make_odu()
@@ -188,6 +209,18 @@ async def test_controller_device_info_no_idu(hass) -> None:
     info = controller_device_info(ctrl, None)
 
     assert "via_device" not in info
+
+
+async def test_controller_device_info_prefers_room_over_serial_default(hass) -> None:
+    """A serial-based default Dial name is replaced by the room name."""
+    ctrl = make_controller()
+    ctrl.name = "Dial QD1-XYZ789"
+    ctrl.serial_number = "QD1-XYZ789"
+    space = make_space(name="Guest Bedroom")
+
+    info = controller_device_info(ctrl, None, space)
+
+    assert info["name"] == "Guest Bedroom Dial"
 
 
 async def test_remote_sensor_device_info(hass) -> None:

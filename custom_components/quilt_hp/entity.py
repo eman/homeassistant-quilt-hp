@@ -143,23 +143,39 @@ class QuiltControllerEntity(QuiltEntity):
             if ctrl.space_id
             else None
         )
-        return controller_device_info(ctrl, idu)
+        space = (
+            self.coordinator.spaces_by_id.get(ctrl.space_id) if ctrl.space_id else None
+        )
+        return controller_device_info(ctrl, idu, space)
+
+
+def _is_serial_default_name(name: str, serial: str | None) -> bool:
+    """Return True when *name* is Quilt's serial-based auto-generated default.
+
+    Quilt names indoor units "Indoor Unit {serial}" and dials "Dial {serial}"
+    by default. Such names duplicate the serial (already shown on the device
+    card) and aren't user-friendly, so callers prefer the room name instead.
+    """
+    return serial is not None and serial != "" and serial in name
 
 
 def idu_device_info(idu: IndoorUnit, space: Space | None = None) -> DeviceInfo:
     """Build a ``DeviceInfo`` for an IDU and its embedded QSM.
 
-    The device is named using the IDU's configured name (from idu.settings.name)
-    or a descriptive fallback pattern. This ensures the device name identifies the
-    physical hardware rather than just duplicating the area name.
+    The device is named after the room (space) it serves, unless the IDU has a
+    genuine user-set name in the Quilt app. Quilt's serial-based default name
+    ("Indoor Unit {serial}") is treated as no name, since the serial is already
+    exposed on the device card.
 
     Spaces are not HA devices; they are surfaced as areas via ``suggested_area``.
     """
-    # Use device's configured name, or construct a descriptive name
-    if idu.settings.name:
-        name = idu.settings.name
+    configured = idu.settings.name
+    if configured and not _is_serial_default_name(configured, idu.serial_number):
+        name = configured
     elif space is not None:
         name = f"{space.name} Indoor Unit"
+    elif configured:
+        name = configured
     else:
         name = f"Indoor Unit {idu.id[:8]}"
 
@@ -205,16 +221,30 @@ def odu_device_info(odu: OutdoorUnit, idu: IndoorUnit | None = None) -> DeviceIn
 
 
 def controller_device_info(
-    ctrl: Controller, idu: IndoorUnit | None = None
+    ctrl: Controller, idu: IndoorUnit | None = None, space: Space | None = None
 ) -> DeviceInfo:
     """Build a ``DeviceInfo`` for a Quilt Controller (Dial).
+
+    Named after the room (space) it serves, unless the Dial has a genuine
+    user-set name in the Quilt app; Quilt's serial-based default ("Dial
+    {serial}") is treated as no name since the serial is on the device card.
 
     The Dial is a physically separate device from the IDU. ``via_device`` links
     it to the IDU in the same space so HA groups them correctly in the UI.
     """
+    configured = ctrl.name
+    if configured and not _is_serial_default_name(configured, ctrl.serial_number):
+        name = configured
+    elif space is not None:
+        name = f"{space.name} Dial"
+    elif configured:
+        name = configured
+    else:
+        name = "Quilt Dial"
+
     info = DeviceInfo(
         identifiers={(DOMAIN, f"c_{ctrl.id}")},
-        name=ctrl.name or "Quilt Dial",
+        name=name,
         manufacturer=_MANUFACTURER,
         model=_clean(ctrl.model_sku) or "Dial",
     )

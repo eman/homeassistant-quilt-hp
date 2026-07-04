@@ -85,6 +85,10 @@
   setting's values when the API returns placeholder setpoints.
 
 ### Fixed
+- Indoor unit and Dial devices are now named after the room they serve (e.g. "Family
+  Room Indoor Unit", "Family Room Dial") instead of Quilt's serial-based default name
+  ("Indoor Unit {serial}"). A genuine user-set name in the Quilt app is still respected;
+  only the serial-duplicating default is replaced (the serial is on the device card).
 - Control writes (LED on/off, fan speed, louver, climate setpoints/mode) now update the
   entity state immediately from the write's return value instead of waiting for the next
   stream push. A controls-only change is not always echoed on the notifier stream, so
