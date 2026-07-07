@@ -85,6 +85,9 @@
   setting's values when the API returns placeholder setpoints.
 
 ### Fixed
+- `HATokenStore.delete()` no longer risks raising on a corrupted (non-dict) token
+  cache file; it now defensively clears the store instead, matching `load()`'s
+  existing handling of malformed data.
 - The thermostat card no longer shows a low/high temperature range in single-setpoint
   Heat or Cool mode. `target_temperature_low`/`target_temperature_high` are now reported
   only in Heat/Cool (auto) mode, so Heat and Cool modes show a single target setpoint

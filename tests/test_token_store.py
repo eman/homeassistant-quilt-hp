@@ -68,6 +68,16 @@ async def test_load_tokens_malformed(hass) -> None:
     assert tokens is None
 
 
+async def test_load_tokens_non_dict_store(hass) -> None:
+    """Test loading when the store contains a non-dict payload (corrupted file)."""
+    store = HATokenStore(hass)
+
+    with patch.object(store._store, "async_load", return_value=["not", "a", "dict"]):
+        tokens = await store.load("test@example.com")
+
+    assert tokens is None
+
+
 async def test_save_tokens(hass) -> None:
     """Test saving tokens."""
     store = HATokenStore(hass)
@@ -212,3 +222,18 @@ async def test_delete_missing_email_is_noop(hass) -> None:
 
     mock_save.assert_not_awaited()
     mock_remove.assert_not_awaited()
+
+
+async def test_delete_non_dict_store_clears_instead_of_raising(hass) -> None:
+    """Deleting against a corrupted (non-dict) store must not raise."""
+    store = HATokenStore(hass)
+
+    with (
+        patch.object(store._store, "async_load", return_value=["not", "a", "dict"]),
+        patch.object(store._store, "async_save", new=AsyncMock()) as mock_save,
+        patch.object(store._store, "async_remove", new=AsyncMock()) as mock_remove,
+    ):
+        await store.delete("test@example.com")
+
+    mock_save.assert_not_awaited()
+    mock_remove.assert_awaited_once()

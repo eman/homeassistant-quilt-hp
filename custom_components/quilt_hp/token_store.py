@@ -30,12 +30,20 @@ class HATokenStore:
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the token store."""
-        self._store: Store[dict[str, Any]] = Store(hass, _STORE_VERSION, _STORE_KEY)
+        # Typed as `Any` (rather than `dict[str, Any]`) so load()/delete() can
+        # defensively validate the on-disk shape at runtime instead of the
+        # type checker assuming it is always already a well-formed dict.
+        self._store: Store[Any] = Store(hass, _STORE_VERSION, _STORE_KEY)
         self._write_lock: asyncio.Lock = asyncio.Lock()
 
     async def load(self, email: str) -> CachedTokens | None:
         """Load cached tokens for *email*, or ``None`` if not present."""
-        data: dict[str, Any] = await self._store.async_load() or {}
+        data = await self._store.async_load() or {}
+        if not isinstance(data, dict):
+            _LOGGER.warning(
+                "Malformed token cache (expected a mapping); will re-authenticate"
+            )
+            return None
         entry = data.get(email)
         if entry is None:
             return None
@@ -63,7 +71,15 @@ class HATokenStore:
     async def delete(self, email: str) -> None:
         """Remove any cached tokens for *email*."""
         async with self._write_lock:
-            data: dict[str, Any] = await self._store.async_load() or {}
+            data = await self._store.async_load() or {}
+            if not isinstance(data, dict):
+                _LOGGER.warning(
+                    "Malformed token cache (expected a mapping); "
+                    + "clearing store instead of deleting %s",
+                    email,
+                )
+                await self._store.async_remove()
+                return
             if email not in data:
                 return
             del data[email]
