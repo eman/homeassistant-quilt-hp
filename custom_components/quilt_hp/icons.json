@@ -1,0 +1,9 @@
+{
+  "entity": {
+    "switch": {
+      "schedules": {
+        "default": "mdi:calendar-clock"
+      }
+    }
+  }
+}

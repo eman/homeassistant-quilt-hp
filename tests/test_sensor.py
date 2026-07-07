@@ -5,8 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import math
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
+from quilt_hp.models.enums import ComfortSettingType
 
 from custom_components.quilt_hp.sensor import (
     CONTROLLER_REMOTE_SENSOR_DESCRIPTIONS,
@@ -16,6 +18,7 @@ from custom_components.quilt_hp.sensor import (
     QSM_SENSOR_DESCRIPTIONS,
     REMOTE_SENSOR_DESCRIPTIONS,
     SPACE_SENSOR_DESCRIPTIONS,
+    QuiltComfortSettingSensor,
     QuiltControllerRemoteSensor,
     QuiltControllerSensor,
     QuiltEnergySensor,
@@ -28,11 +31,13 @@ from custom_components.quilt_hp.sensor import (
 )
 
 from .conftest import (
+    make_comfort_setting,
     make_controller,
     make_ctrl_remote_sensor,
     make_idu,
     make_mock_coordinator,
     make_odu,
+    make_qsm,
     make_remote_sensor,
     make_snapshot,
     make_space,
@@ -87,6 +92,38 @@ def test_space_ambient_temperature_nan_is_none(hass) -> None:
     assert entity.native_value is None
 
 
+def test_active_comfort_setting_reflects_type(hass) -> None:
+    space = make_space()  # controls.comfort_setting_id defaults to "cs-001"
+    cs = make_comfort_setting(
+        cs_id="cs-001", name="Cozy", cs_type=ComfortSettingType.SLEEP
+    )
+    coordinator = make_mock_coordinator(
+        hass, make_snapshot(spaces=[space], comfort_settings=[cs])
+    )
+    entity = QuiltComfortSettingSensor(coordinator, "space-001", "idu-001")
+    assert entity.native_value == "sleep"
+    assert entity.extra_state_attributes == {"comfort_setting_name": "Cozy"}
+
+
+def test_active_comfort_setting_none_when_unlinked(hass) -> None:
+    space = make_space()
+    space.controls.comfort_setting_id = ""
+    coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
+    entity = QuiltComfortSettingSensor(coordinator, "space-001", "idu-001")
+    assert entity.native_value is None
+    assert entity.extra_state_attributes is None
+
+
+def test_active_comfort_setting_none_when_unspecified(hass) -> None:
+    space = make_space()
+    cs = make_comfort_setting(cs_id="cs-001", cs_type=ComfortSettingType.UNSPECIFIED)
+    coordinator = make_mock_coordinator(
+        hass, make_snapshot(spaces=[space], comfort_settings=[cs])
+    )
+    entity = QuiltComfortSettingSensor(coordinator, "space-001", "idu-001")
+    assert entity.native_value is None
+
+
 def test_idu_ambient_temperature(coordinator) -> None:
     desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "ambient_temperature")
     entity = QuiltIDUSensor(coordinator, "idu-001", desc)
@@ -97,18 +134,6 @@ def test_idu_humidity(coordinator) -> None:
     desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "ambient_humidity")
     entity = QuiltIDUSensor(coordinator, "idu-001", desc)
     assert entity.native_value == 45.0
-
-
-def test_idu_fan_rpm(coordinator) -> None:
-    desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "fan_speed_rpm")
-    entity = QuiltIDUSensor(coordinator, "idu-001", desc)
-    assert entity.native_value == 800.0
-
-
-def test_idu_fan_speed_setpoint_rpm(coordinator) -> None:
-    desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "fan_speed_setpoint_rpm")
-    entity = QuiltIDUSensor(coordinator, "idu-001", desc)
-    assert entity.native_value == 820.0
 
 
 def test_idu_coil_temperature_none_when_no_perf_data(coordinator) -> None:
@@ -253,7 +278,7 @@ def test_qsm_local_comms_health_unspecified(hass) -> None:
     }
     desc = next(d for d in QSM_SENSOR_DESCRIPTIONS if d.key == "local_comms_health")
     entity = QuiltQSMSensor(coordinator, "idu-001", desc)
-    assert entity.native_value == "UNSPECIFIED"
+    assert entity.native_value == "unspecified"
 
 
 def test_controller_local_comms_health_unspecified(coordinator_with_ctrl) -> None:
@@ -263,7 +288,7 @@ def test_controller_local_comms_health_unspecified(coordinator_with_ctrl) -> Non
         d for d in CONTROLLER_SENSOR_DESCRIPTIONS if d.key == "local_comms_health"
     )
     entity = QuiltControllerSensor(coordinator_with_ctrl, "ctrl-001", desc)
-    assert entity.native_value == "UNSPECIFIED"
+    assert entity.native_value == "unspecified"
 
 
 def test_remote_sensor_temperature(hass) -> None:
@@ -356,8 +381,6 @@ def test_odu_unique_id_excludes_idu_id() -> None:
     """ODU unique ID must not include an IDU ID — the ODU is a standalone device."""
     desc = next(d for d in ODU_SENSOR_DESCRIPTIONS if d.key == "ambient_temperature")
     # Simulate two different IDUs both referencing the same ODU
-    from unittest.mock import MagicMock
-
     coordinator = MagicMock()
     entity_a = QuiltODUSensor(coordinator, "odu-001", "idu-001", desc)
     entity_b = QuiltODUSensor(coordinator, "odu-001", "idu-002", desc)
@@ -365,7 +388,7 @@ def test_odu_unique_id_excludes_idu_id() -> None:
     assert "idu" not in (entity_a.unique_id or "")
 
 
-def test_shared_odu_creates_one_sensor_set(hass) -> None:
+async def test_shared_odu_creates_one_sensor_set(hass) -> None:
     """When two IDUs share an ODU, only one set of ODU sensors should be created."""
     idu1 = make_idu(idu_id="idu-001", space_id="space-001", outdoor_unit_id="odu-001")
     idu2 = make_idu(idu_id="idu-002", space_id="space-002", outdoor_unit_id="odu-001")
@@ -378,18 +401,97 @@ def test_shared_odu_creates_one_sensor_set(hass) -> None:
     def capture(entities, **_kwargs):
         created.extend(e for e in entities if isinstance(e, QuiltODUSensor))
 
-    from unittest.mock import MagicMock
-
     entry = MagicMock()
     entry.entry_id = "test"
     entry.runtime_data = coordinator
-    coordinator.hass = hass
 
-    import asyncio
-
-    asyncio.get_event_loop().run_until_complete(async_setup_entry(hass, entry, capture))
+    await async_setup_entry(hass, entry, capture)
 
     odu_unique_ids = {e.unique_id for e in created}
     assert len(odu_unique_ids) == len(ODU_SENSOR_DESCRIPTIONS), (
         "Expected one sensor per ODU description, got duplicates"
     )
+
+
+async def test_dynamic_new_idu_adds_entities(hass) -> None:
+    """A new IDU appearing in coordinator data must be added on the fly."""
+    snapshot = make_snapshot()
+    coordinator = make_mock_coordinator(hass, snapshot)
+
+    batches: list[list] = []
+
+    def capture(entities, **_kwargs):
+        batches.append(list(entities))
+
+    entry = MagicMock()
+    entry.entry_id = "test"
+    entry.runtime_data = coordinator
+
+    await async_setup_entry(hass, entry, capture)
+    assert len(batches) == 1
+    # Listener must be registered for future coordinator updates.
+    coordinator.async_add_listener.assert_called_once()
+    entry.async_on_unload.assert_called_once()
+
+    # Simulate a new IDU (and its space) appearing in a later snapshot.
+    new_space = make_space(space_id="space-002")
+    new_idu = make_idu(idu_id="idu-002", space_id="space-002")
+    snapshot.spaces.append(new_space)
+    snapshot.indoor_units.append(new_idu)
+    coordinator.spaces_by_id[new_space.id] = new_space
+    coordinator.idu_by_id[new_idu.id] = new_idu
+    coordinator.first_idu_id_by_space_id[new_space.id] = new_idu.id
+
+    for listener in coordinator.listeners:
+        listener()
+
+    assert len(batches) == 2
+    new_unique_ids = {e.unique_id for e in batches[1]}
+    assert any("idu-002" in (uid or "") for uid in new_unique_ids)
+    # The pre-existing IDU must not be re-added.
+    assert not any("idu-001" in (uid or "") for uid in new_unique_ids)
+
+
+async def test_dynamic_no_duplicate_add_on_unchanged_data(hass) -> None:
+    """Coordinator updates without new devices must not re-add entities."""
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+
+    batches: list[list] = []
+
+    def capture(entities, **_kwargs):
+        batches.append(list(entities))
+
+    entry = MagicMock()
+    entry.entry_id = "test"
+    entry.runtime_data = coordinator
+
+    await async_setup_entry(hass, entry, capture)
+    for listener in coordinator.listeners:
+        listener()
+
+    assert len(batches) == 1
+
+
+def test_qsm_sensor_values(hass) -> None:
+    idu = make_idu()
+    idu.qsm_id = "qsm-001"
+    qsm = make_qsm()
+    snapshot = make_snapshot(indoor_units=[idu], quilt_smart_modules=[qsm])
+    coordinator = make_mock_coordinator(hass, snapshot)
+
+    values = {}
+    for desc in QSM_SENSOR_DESCRIPTIONS:
+        entity = QuiltQSMSensor(coordinator, "idu-001", desc)
+        values[desc.key] = entity.native_value
+
+    assert values["phase_detected_raw"] == 0.5
+    assert values["target_detected_raw"] == 0.3
+    assert values["als_illuminance"] == 200
+
+
+def test_qsm_sensor_unavailable_without_qsm(coordinator) -> None:
+    """IDU without a paired QSM: QSM sensors must be unavailable."""
+    desc = next(d for d in QSM_SENSOR_DESCRIPTIONS if d.key == "phase_detected_raw")
+    entity = QuiltQSMSensor(coordinator, "idu-001", desc)
+    assert not entity.available
+    assert entity.native_value is None

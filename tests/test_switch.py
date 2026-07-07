@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from custom_components.quilt_hp.const import DOMAIN
 from custom_components.quilt_hp.switch import QuiltScheduleSwitch
 
 from .conftest import (
@@ -56,3 +57,15 @@ async def test_schedule_switch_turn_on_resumes(coordinator_paused) -> None:
         paused=False
     )
     coordinator_paused.async_request_refresh.assert_awaited_once()
+
+
+def test_schedule_switch_device_info(coordinator) -> None:
+    entity = QuiltScheduleSwitch(coordinator, "loc-001")
+    assert (DOMAIN, "loc_loc-001") in entity.device_info["identifiers"]
+
+
+def test_schedule_switch_unavailable_when_location_removed(coordinator) -> None:
+    entity = QuiltScheduleSwitch(coordinator, "loc-001")
+    assert entity.available
+    coordinator.location_by_id = {}
+    assert not entity.available

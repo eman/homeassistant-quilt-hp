@@ -73,7 +73,7 @@ async def async_get_config_entry_diagnostics(
         "coordinator": {
             "is_streaming": coordinator.is_streaming,
             "last_update_success": coordinator.last_update_success,
-            "stream_error_count": coordinator.stream_error_count,
+            "stream_death_count": coordinator.stream_death_count,
         },
         "spaces": spaces_info,
         "indoor_units": idu_info,

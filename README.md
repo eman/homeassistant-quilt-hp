@@ -17,11 +17,11 @@ For protocol details, streaming behavior, and the full client feature set, see t
 ## Features
 
 - **Climate entities** — control HVAC mode and setpoints for each Quilt space (room)
-- **Sensor entities** — ambient temperature, humidity, fan speed, inlet/outlet temps,
+- **Sensor entities** — ambient temperature, humidity, inlet/outlet temps,
   presence level, COP, HVAC power, compressor data, and per-space energy
-- **Fan entities** — set indoor unit fan speed (Auto / Quiet / Low / Medium / High / Blast)
 - **Light entities** — toggle and dim indoor unit LED, set RGBW color and animation effect
-- **Select entities** — louver mode (Closed / Sweep / Fixed / Auto) and fixed angle
+- **Select entities** — fan speed (Auto / Quiet / Low / Medium / High / Blast), louver mode
+  (Closed / Sweep / Fixed / Auto), and fixed louver angle
 - **Binary sensor entities** — motion, presence, occupancy, and connectivity status per IDU
 - **Switch entities** — pause or resume all Quilt schedules for a location
 - **Real-time updates** — powered by Quilt's bidirectional gRPC stream with auto-reconnect
@@ -155,35 +155,48 @@ default to reduce noise; enable them individually in the HA entity registry.
 | Entity | Platform | Default |
 |---|---|---|
 | Climate | `climate` | Enabled |
-| Space Temperature | `sensor` | Enabled |
+| Space temperature | `sensor` | Enabled |
+| Active comfort setting | `sensor` | Enabled (diagnostic) |
 
 The climate entity supports the following HVAC modes: **Off**, **Cool**, **Heat**,
-**Heat/Cool** (auto), **Fan only**. It also exposes Quilt **comfort settings** as HA
-preset modes — selecting a preset activates that comfort profile on the space.
+**Heat/Cool** (auto), **Fan only**, **Dry**. It also exposes an **Away** preset that
+mirrors Quilt's occupancy away state — set automatically when a room is unoccupied or from
+the Quilt app — and can be toggled from the thermostat. Turning Away off restores the
+room's normal (Active) target; Quilt may re-enter away automatically while the room stays
+unoccupied.
+
+The **Active comfort setting** sensor reports which comfort profile Quilt's scheduler is
+currently applying to the room (**Active**, **Sleep**, **Away**, **Standby**, or
+**Custom**); the profile's configured name is available as its `comfort_setting_name`
+attribute. It is read-only — comfort profiles are managed by Quilt's schedule, not
+selected from Home Assistant.
 
 ### Per Indoor Unit (IDU)
 
+The **Fan speed** select controls the indoor unit fan: **Auto** (the HVAC system chooses
+the speed) plus explicit **Quiet / Low / Medium / High / Blast** speeds. Quilt's fan has no
+"off" state — it is always in one of these modes.
+
 | Entity | Platform | Default |
 |---|---|---|
-| Fan Speed | `fan` | Enabled |
-| LED Light | `light` | Enabled |
-| Louver Mode | `select` | Enabled |
-| Louver Angle | `select` | Enabled |
+| Fan speed | `select` | Enabled |
+| LED | `light` | Enabled |
+| Louver mode | `select` | Enabled |
+| Louver angle | `select` | Enabled |
 | Temperature (IDU sensor) | `sensor` | Enabled |
 | Humidity | `sensor` | Enabled |
-| Fan Speed RPM | `sensor` | Enabled |
 | Motion | `binary_sensor` | Enabled |
 | Presence | `binary_sensor` | Enabled |
 | Occupied | `binary_sensor` | Enabled |
-| Inlet Temperature | `sensor` | Disabled |
-| Outlet Temperature | `sensor` | Disabled |
-| Presence Level | `sensor` | Disabled |
-| HVAC Capacity | `sensor` | Disabled |
-| HVAC Power | `sensor` | Disabled |
-| COP | `sensor` | Disabled |
-| Calibrated Temperature | `sensor` | Disabled |
-| Motion Signal (radar) | `sensor` | Disabled |
-| Presence Signal (radar) | `sensor` | Disabled |
+| Inlet temperature | `sensor` | Disabled |
+| Outlet temperature | `sensor` | Disabled |
+| Presence level | `sensor` | Disabled |
+| HVAC capacity | `sensor` | Disabled |
+| HVAC power | `sensor` | Disabled |
+| Coefficient of performance | `sensor` | Disabled |
+| Calibrated temperature | `sensor` | Disabled |
+| Motion signal (radar) | `sensor` | Disabled |
+| Presence signal (radar) | `sensor` | Disabled |
 | Illuminance | `sensor` | Disabled |
 | Online | `binary_sensor` | Disabled |
 
@@ -191,10 +204,10 @@ preset modes — selecting a preset activates that comfort profile on the space.
 
 | Entity | Platform | Default |
 |---|---|---|
-| Outdoor Temperature | `sensor` | Enabled |
-| Compressor Frequency | `sensor` | Disabled |
-| High-Side Pressure | `sensor` | Disabled |
-| Low-Side Pressure | `sensor` | Disabled |
+| Outdoor temperature | `sensor` | Enabled |
+| Compressor frequency | `sensor` | Disabled |
+| High-side pressure | `sensor` | Disabled |
+| Low-side pressure | `sensor` | Disabled |
 
 ### Per Controller (Quilt Dial)
 
@@ -202,7 +215,7 @@ preset modes — selecting a preset activates that comfort profile on the space.
 |---|---|---|
 | Temperature | `sensor` | Enabled |
 | Online | `binary_sensor` | Disabled |
-| WiFi Signal | `sensor` | Disabled |
+| Wi-Fi signal | `sensor` | Disabled |
 
 ## Troubleshooting
 
@@ -241,6 +254,154 @@ and include:
 - Home Assistant version
 - Integration version
 - Relevant lines from `home-assistant.log` with debug logging enabled
+
+## Use cases
+
+- **Room-by-room comfort** — each Quilt space is a `climate` entity with its own
+  setpoints and mode, so bedrooms, offices, and living areas can follow different
+  targets and schedules.
+- **Presence-aware HVAC** — every indoor unit exposes radar-based `motion`, `presence`,
+  and `occupied` binary sensors. Use them to set back unoccupied rooms or as
+  general-purpose occupancy sensors for lighting and security automations.
+- **Energy tracking** — the per-room *Energy today* sensors plug directly into HA's
+  Energy dashboard (add them as individual devices) and reset at local midnight.
+- **Schedule control** — the per-home *Schedules* switch pauses or resumes all Quilt
+  schedules at once, e.g. while on vacation or during a party.
+- **Ambient signals** — the indoor unit LED is a full RGBW `light` with effects; use it
+  as a subtle notification surface in rooms that have one.
+
+## Automation examples
+
+Entity IDs below follow HA's generated names (`climate.family_room`,
+`binary_sensor.family_room_occupied`, `switch.<home>_schedules`, …) — adjust to yours.
+
+**Set back an empty room, restore it when someone returns:**
+
+```yaml
+automation:
+  - alias: "Family room away setback"
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.family_room_occupied
+        to: "off"
+        for: "00:30:00"
+    actions:
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.family_room
+        data:
+          target_temp_low: 17
+          target_temp_high: 27
+
+  - alias: "Family room comfort on return"
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.family_room_occupied
+        to: "on"
+    actions:
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.family_room
+        data:
+          target_temp_low: 20
+          target_temp_high: 24
+```
+
+**Pause all Quilt schedules while nobody is home:**
+
+```yaml
+automation:
+  - alias: "Pause Quilt schedules when away"
+    triggers:
+      - trigger: state
+        entity_id: zone.home
+        to: "0"
+    actions:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.home_schedules
+  - alias: "Resume Quilt schedules on arrival"
+    triggers:
+      - trigger: numeric_state
+        entity_id: zone.home
+        above: 0
+    actions:
+      - action: switch.turn_on
+        target:
+          entity_id: switch.home_schedules
+```
+
+**Turn the room off entirely at night, on in the morning:**
+
+```yaml
+automation:
+  - alias: "Dining room off overnight"
+    triggers:
+      - trigger: time
+        at: "23:00:00"
+    actions:
+      - action: climate.turn_off
+        target:
+          entity_id: climate.dining_room
+  - alias: "Dining room on in the morning"
+    triggers:
+      - trigger: time
+        at: "06:30:00"
+    actions:
+      - action: climate.turn_on
+        target:
+          entity_id: climate.dining_room
+```
+
+**Notify when a room's daily energy exceeds a budget:**
+
+```yaml
+automation:
+  - alias: "Primary bedroom energy budget"
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.primary_bedroom_energy_today
+        above: 5   # kWh
+    actions:
+      - action: notify.mobile_app_phone
+        data:
+          message: >-
+            Primary bedroom has used
+            {{ states('sensor.primary_bedroom_energy_today') }} kWh today.
+```
+
+**Use the indoor unit LED as a doorbell flash:**
+
+```yaml
+automation:
+  - alias: "Flash family room LED on doorbell"
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.doorbell
+        to: "on"
+    actions:
+      - action: light.turn_on
+        target:
+          entity_id: light.family_room_led
+        data:
+          rgbw_color: [255, 120, 0, 0]
+          brightness: 255
+          effect: sparkle_fade
+      - delay: "00:00:10"
+      - action: light.turn_off
+        target:
+          entity_id: light.family_room_led
+```
+
+## Removing the integration
+
+1. In Home Assistant go to **Settings → Devices & services → Quilt**.
+2. Open the entry menu (⋮) and select **Delete**.
+3. If no other Quilt entry uses the same account, the cached authentication tokens
+   are removed from HA storage automatically.
+
+To fully sign the host out of your Quilt account, also revoke the session from the
+Quilt mobile app if desired.
 
 ## Contributing
 

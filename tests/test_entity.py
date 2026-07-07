@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
+
 from custom_components.quilt_hp.entity import (
+    QuiltControllerEntity,
     QuiltEntity,
+    QuiltIDUEntity,
     _clean,
+    async_setup_dynamic_entities,
     controller_device_info,
     ctrl_remote_sensor_device_info,
     idu_device_info,
@@ -90,8 +96,19 @@ async def test_idu_device_info_with_name(hass) -> None:
     assert info["name"] == "Master Bedroom IDU"
     assert info["manufacturer"] == "Quilt"
     assert info["model"] == "Indoor Unit"
+    assert info["serial_number"] == "QS1-IDU0001"
+    assert info["sw_version"] == "43"
     assert info["suggested_area"] == "Master Bedroom"
     assert ("quilt_hp", f"i_{idu.id}") in info["identifiers"]
+
+
+async def test_idu_device_info_omits_missing_hardware(hass) -> None:
+    """Serial/firmware are omitted when the hardware map had no data."""
+    idu = make_idu(serial_number=None, firmware_version=None, model_sku="N/A")
+    info = idu_device_info(idu, make_space())
+    assert "serial_number" not in info
+    assert "sw_version" not in info
+    assert info["model"] == "Indoor Unit"
 
 
 async def test_idu_device_info_without_name(hass) -> None:
@@ -115,6 +132,27 @@ async def test_idu_device_info_no_space(hass) -> None:
 
     assert info["name"].startswith("Indoor Unit")
     assert "suggested_area" not in info
+
+
+async def test_idu_device_info_prefers_room_over_serial_default(hass) -> None:
+    """A serial-based default IDU name is replaced by the room name."""
+    idu = make_idu(serial_number="QS1-ABC123")
+    idu.settings.name = "Indoor Unit QS1-ABC123"
+    space = make_space(name="Family Room")
+
+    info = idu_device_info(idu, space)
+
+    assert info["name"] == "Family Room Indoor Unit"
+
+
+async def test_idu_device_info_keeps_serial_default_without_space(hass) -> None:
+    """Without a room, a serial-default name is kept rather than dropped."""
+    idu = make_idu(serial_number="QS1-ABC123")
+    idu.settings.name = "Indoor Unit QS1-ABC123"
+
+    info = idu_device_info(idu, None)
+
+    assert info["name"] == "Indoor Unit QS1-ABC123"
 
 
 async def test_odu_device_info(hass) -> None:
@@ -173,6 +211,18 @@ async def test_controller_device_info_no_idu(hass) -> None:
     assert "via_device" not in info
 
 
+async def test_controller_device_info_prefers_room_over_serial_default(hass) -> None:
+    """A serial-based default Dial name is replaced by the room name."""
+    ctrl = make_controller()
+    ctrl.name = "Dial QD1-XYZ789"
+    ctrl.serial_number = "QD1-XYZ789"
+    space = make_space(name="Guest Bedroom")
+
+    info = controller_device_info(ctrl, None, space)
+
+    assert info["name"] == "Guest Bedroom Dial"
+
+
 async def test_remote_sensor_device_info(hass) -> None:
     """Test remote sensor device info."""
     rs = make_remote_sensor()
@@ -220,3 +270,112 @@ async def test_location_device_info(hass) -> None:
     assert info["manufacturer"] == "Quilt"
     assert "System" in info["model"]
     assert ("quilt_hp", f"loc_{loc.id}") in info["identifiers"]
+
+
+# ── QuiltIDUEntity / QuiltControllerEntity ────────────────────────────────────
+
+
+async def test_idu_entity_availability(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    entity = QuiltIDUEntity(coordinator, "idu-001")
+    assert entity.available is True
+
+    coordinator.idu_by_id = {}
+    assert entity.available is False
+
+
+async def test_idu_entity_unavailable_when_offline(hass) -> None:
+    idu = make_idu(online=False)
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[idu]))
+    entity = QuiltIDUEntity(coordinator, "idu-001")
+    assert entity.available is False
+
+
+async def test_idu_entity_device_info(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    entity = QuiltIDUEntity(coordinator, "idu-001")
+    assert ("quilt_hp", "i_idu-001") in entity.device_info["identifiers"]
+
+
+async def test_controller_entity_availability(hass) -> None:
+    ctrl = make_controller()
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    entity = QuiltControllerEntity(coordinator, "ctrl-001")
+    assert entity.available is True
+
+    coordinator.ctrl_by_id = {}
+    assert entity.available is False
+
+
+async def test_controller_entity_unavailable_when_offline(hass) -> None:
+    ctrl = make_controller()
+    # A stale timestamp is positive evidence of being offline (None fails open).
+    ctrl.state_updated_at = datetime.now(tz=UTC) - timedelta(hours=1)
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    entity = QuiltControllerEntity(coordinator, "ctrl-001")
+    assert entity.available is False
+
+
+async def test_controller_entity_available_without_timestamp(hass) -> None:
+    """No state timestamp → assume online (fail-open, server omits the field)."""
+    ctrl = make_controller(online=False)  # state_updated_at=None
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    entity = QuiltControllerEntity(coordinator, "ctrl-001")
+    assert entity.available is True
+
+
+async def test_controller_entity_device_info(hass) -> None:
+    ctrl = make_controller()
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    entity = QuiltControllerEntity(coordinator, "ctrl-001")
+    info = entity.device_info
+    assert ("quilt_hp", "c_ctrl-001") in info["identifiers"]
+    assert info["via_device"] == ("quilt_hp", "i_idu-001")
+
+
+# ── async_setup_dynamic_entities ──────────────────────────────────────────────
+
+
+async def test_dynamic_entities_initial_add_and_listener(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    entry = MagicMock()
+    added: list[list] = []
+
+    def build_new(known: set[str]):
+        return [(k, MagicMock()) for k in ("a", "b") if k not in known]
+
+    async_setup_dynamic_entities(
+        entry, coordinator, lambda ents: added.append(list(ents)), build_new
+    )
+
+    assert len(added) == 1
+    assert len(added[0]) == 2
+    entry.async_on_unload.assert_called_once()
+    coordinator.async_add_listener.assert_called_once()
+
+
+async def test_dynamic_entities_adds_only_new_keys_on_update(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    entry = MagicMock()
+    added: list[list] = []
+    keys = ["a"]
+
+    def build_new(known: set[str]):
+        return [(k, MagicMock()) for k in keys if k not in known]
+
+    async_setup_dynamic_entities(
+        entry, coordinator, lambda ents: added.append(list(ents)), build_new
+    )
+    assert len(added) == 1
+
+    # Coordinator update with no new devices: nothing added.
+    for listener in coordinator.listeners:
+        listener()
+    assert len(added) == 1
+
+    # New device appears: exactly one new entity added.
+    keys.append("b")
+    for listener in coordinator.listeners:
+        listener()
+    assert len(added) == 2
+    assert len(added[1]) == 1

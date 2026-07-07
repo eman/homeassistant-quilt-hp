@@ -7,6 +7,9 @@
         "description": "Enter the email address associated with your Quilt account. A one-time passcode will be sent to that address.",
         "data": {
           "email": "Email address"
+        },
+        "data_description": {
+          "email": "The email address used to sign in to the Quilt app."
         }
       },
       "otp": {
@@ -14,6 +17,9 @@
         "description": "Enter the one-time passcode sent to {email}.",
         "data": {
           "otp": "One-time passcode"
+        },
+        "data_description": {
+          "otp": "The 6-digit code from the email Quilt just sent you."
         }
       },
       "home": {
@@ -21,6 +27,9 @@
         "description": "Your account has {count} homes. Select the one you want to integrate.",
         "data": {
           "home_name": "Home"
+        },
+        "data_description": {
+          "home_name": "Each home is added as its own integration entry."
         }
       },
       "reauth_confirm": {
@@ -32,22 +41,23 @@
         "description": "Update your Quilt email address or re-authenticate. A passcode will be sent to the email you provide.",
         "data": {
           "email": "Email address"
+        },
+        "data_description": {
+          "email": "The email address used to sign in to the Quilt app."
         }
       }
     },
     "error": {
       "cannot_connect": "Unable to connect to the Quilt cloud. Check your internet connection and try again.",
-      "invalid_auth": "Invalid passcode. Please check the code and try again.",
-      "invalid_email": "This email address is not registered with Quilt. Please check your email or sign up at the Quilt app.",
-      "otp_expired": "This passcode has expired. Please request a new one.",
-      "network_error": "Network error. Check your internet connection and try again.",
-      "api_error": "An error occurred communicating with the Quilt cloud. Please try again later.",
-      "unknown": "An unexpected error occurred.",
-      "reconfigure_failed": "Reconfiguration failed. Please try again."
+      "invalid_auth": "Authentication failed. Please check the passcode or email address and try again.",
+      "unknown": "An unexpected error occurred."
     },
     "abort": {
       "already_configured": "This Quilt home is already configured.",
-      "reconfigure_successful": "Reconfiguration successful. Your integration has been updated."
+      "reauth_successful": "Re-authentication was successful.",
+      "reconfigure_successful": "Reconfiguration successful. Your integration has been updated.",
+      "reconfigure_failed": "Reconfiguration failed. Please try again.",
+      "unique_id_mismatch": "The new account does not contain the home this entry was configured for."
     }
   },
   "options": {
@@ -57,30 +67,185 @@
         "description": "Adjust settings for this Quilt home. The polling interval is a fallback used when the real-time stream is unavailable.",
         "data": {
           "polling_interval": "Polling interval (minutes)"
+        },
+        "data_description": {
+          "polling_interval": "How often to poll the Quilt cloud when the real-time stream is not delivering updates."
         }
       }
     }
   },
   "issues": {
     "stream_degraded": {
-      "title": "Quilt real-time stream is degraded",
-      "description": "The Quilt cloud connection has experienced repeated errors. The integration is falling back to polling every 5 minutes. Check your internet connection or the Quilt cloud status. The issue will resolve automatically once the stream reconnects."
+      "title": "Quilt real-time stream is unavailable",
+      "description": "The Quilt real-time connection has stopped and could not be re-established yet. The integration is falling back to polling every {interval} minutes and will keep retrying the stream. Check your internet connection or the Quilt cloud status. The issue will resolve automatically once the stream reconnects."
     }
   },
   "entity": {
+    "binary_sensor": {
+      "motion": {
+        "name": "Motion"
+      },
+      "presence": {
+        "name": "Presence"
+      },
+      "occupied": {
+        "name": "Occupied"
+      },
+      "online": {
+        "name": "Online"
+      }
+    },
+    "light": {
+      "led": {
+        "name": "LED"
+      }
+    },
     "select": {
+      "fan_speed": {
+        "name": "Fan speed",
+        "state": {
+          "auto": "Auto",
+          "quiet": "Quiet",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High",
+          "blast": "Blast"
+        }
+      },
       "louver_mode": {
+        "name": "Louver mode",
         "state": {
           "closed": "Closed",
           "sweep": "Sweep",
           "fixed": "Fixed",
           "auto": "Auto"
         }
+      },
+      "louver_angle": {
+        "name": "Louver angle",
+        "state": {
+          "horizontal": "Horizontal",
+          "slightly_down": "Slightly down",
+          "down": "Down",
+          "mostly_down": "Mostly down",
+          "straight_down": "Straight down"
+        }
       }
-    }
-  },
-  "entity": {
+    },
     "sensor": {
+      "space_temperature": {
+        "name": "Space temperature"
+      },
+      "active_comfort_setting": {
+        "name": "Active comfort setting",
+        "state": {
+          "active": "Active",
+          "sleep": "Sleep",
+          "away": "Away",
+          "standby": "Standby",
+          "custom": "Custom"
+        }
+      },
+      "temperature": {
+        "name": "Temperature"
+      },
+      "humidity": {
+        "name": "Humidity"
+      },
+      "inlet_temperature": {
+        "name": "Inlet temperature"
+      },
+      "outlet_temperature": {
+        "name": "Outlet temperature"
+      },
+      "presence_level": {
+        "name": "Presence level"
+      },
+      "hvac_capacity": {
+        "name": "HVAC capacity"
+      },
+      "hvac_power": {
+        "name": "HVAC power"
+      },
+      "led_power": {
+        "name": "LED power"
+      },
+      "coefficient_of_performance": {
+        "name": "Coefficient of performance"
+      },
+      "calibrated_temperature": {
+        "name": "Calibrated temperature"
+      },
+      "coil_temperature": {
+        "name": "Coil temperature"
+      },
+      "gas_pipe_temperature": {
+        "name": "Gas pipe temperature"
+      },
+      "liquid_pipe_temperature": {
+        "name": "Liquid pipe temperature"
+      },
+      "inlet_humidity": {
+        "name": "Inlet humidity"
+      },
+      "module_power": {
+        "name": "Module power"
+      },
+      "motion_signal": {
+        "name": "Motion signal"
+      },
+      "presence_signal": {
+        "name": "Presence signal"
+      },
+      "illuminance": {
+        "name": "Illuminance"
+      },
+      "local_comms_health": {
+        "name": "Local comms health",
+        "state": {
+          "unspecified": "Unspecified",
+          "healthy": "Healthy",
+          "degraded": "Degraded",
+          "offline": "Offline",
+          "starting_up": "Starting up"
+        }
+      },
+      "outdoor_temperature": {
+        "name": "Outdoor temperature"
+      },
+      "exhaust_temperature": {
+        "name": "Exhaust temperature"
+      },
+      "compressor_frequency": {
+        "name": "Compressor frequency"
+      },
+      "high_side_pressure": {
+        "name": "High-side pressure"
+      },
+      "low_side_pressure": {
+        "name": "Low-side pressure"
+      },
+      "pcb_temperature_a": {
+        "name": "PCB temperature A"
+      },
+      "pcb_temperature_b": {
+        "name": "PCB temperature B"
+      },
+      "calibrated_ambient": {
+        "name": "Calibrated ambient"
+      },
+      "wifi_signal": {
+        "name": "Wi-Fi signal"
+      },
+      "wifi_frequency": {
+        "name": "Wi-Fi frequency"
+      },
+      "battery": {
+        "name": "Battery"
+      },
+      "signal_strength": {
+        "name": "Signal strength"
+      },
       "energy_today": {
         "name": "Energy today"
       }
@@ -89,24 +254,17 @@
       "schedules": {
         "name": "Schedules"
       }
+    }
+  },
+  "exceptions": {
+    "command_failed": {
+      "message": "Quilt command failed: {error}"
     },
-    "select": {
-      "louver_mode": {
-        "name": "Louver mode"
-      },
-      "louver_angle": {
-        "name": "Louver angle"
-      }
+    "auth_failed": {
+      "message": "Quilt authentication failed. Please re-authenticate."
     },
-    "light": {
-      "led": {
-        "name": "LED"
-      }
-    },
-    "fan": {
-      "fan": {
-        "name": "Fan"
-      }
+    "unknown_preset": {
+      "message": "Cannot set preset {preset} for this room."
     }
   }
 }

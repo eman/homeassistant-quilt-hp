@@ -2,6 +2,153 @@
 
 ## [Unreleased]
 
+### Changed
+- Upgraded `quilt-hp-python` dependency to `>=0.5.6`
+  - 0.5.6 resolves `IndoorUnit` hardware exposure
+    ([quilt-hp-python#19](https://github.com/eman/quilt-hp-python/issues/19)): indoor
+    units now carry `serial_number`, `firmware_version`, and `model_sku` (resolved from
+    `indoor_unit_hardware`, previously discarded)
+  - Routine hourly token refresh on unary RPCs is now logged at `INFO` instead of
+    `WARNING` ([quilt-hp-python#13](https://github.com/eman/quilt-hp-python/issues/13))
+  - Includes all 0.5.4 fixes: proto3 absence detection (sparse stream diffs no longer
+    zero room state, IDU controls, sensor readings, or controller temperatures when
+    merged into the snapshot), the transport `UNAUTHENTICATED` retry that never
+    executed (clients broke permanently about an hour after token expiry), and stream
+    reconnect backoff/budget reset after a healthy connection (routine server-side
+    stream recycling no longer escalates to permanent 60-second delays or kills the
+    stream; non-gRPC failures reconnect instead of dying silently)
+- Stream health is now tracked via the library's new `on_connected` callback instead of
+  being inferred from incoming entity events
+- Sensor, binary sensor, and louver angle names now use translation keys
+  with HA sentence-case naming (e.g. "Wi-Fi signal"); the comms-health
+  sensor is a proper `ENUM` sensor with translated states
+- Louver angle select options are now lowercase translated keys (`horizontal`,
+  `slightly_down`, `down`, `mostly_down`, `straight_down`) instead of raw enum names
+- Entity service actions now raise `HomeAssistantError` when a Quilt API call fails
+  (previously a silent warning)
+- The `stream_degraded` repair issue is created as soon as the stream dies for good,
+  shows the actual configured polling interval, and is removed on unload
+- Schedule switch writes always trigger an immediate poll (location state is not
+  carried on the real-time stream)
+- Energy "today" window and `last_reset` now use local midnight instead of UTC midnight
+- `manifest.json` now declares `integration_type: hub` and `loggers`
+- `quality_scale.yaml` rewritten in the standard machine-readable rules format
+- Rebuilt developer typing setup: mypy resolves the integration as
+  `custom_components.quilt_hp` (no longer shadowing the `quilt_hp` library, which had
+  silently degraded all library types to `Any`), and the `attr-defined`/`unused-ignore`
+  error codes are re-enabled
+
+### Added
+- Indoor unit device cards now show the **serial number** and **firmware version**
+  (from `quilt-hp-python` 0.5.6), matching the outdoor unit and controller.
+- Climate **Away preset** (`PRESET_AWAY`). Reflects Quilt's occupancy away state — set
+  automatically when a room is unoccupied or from the Quilt app — and can now be toggled
+  from the HA thermostat. Selecting *Away* activates the room's Away comfort setting;
+  clearing it restores the room's Active (normal occupied) setting (Quilt may re-enter
+  away automatically while the room stays unoccupied).
+- Per-space **Active comfort setting** diagnostic sensor (`ENUM`: active/sleep/away/
+  standby/custom) reporting which comfort profile Quilt's scheduler is currently applying
+  to a room; the profile's configured name is exposed as the `comfort_setting_name`
+  attribute. This replaces the removed climate preset control with a read-only,
+  non-misleading view of the same state.
+- Indoor unit fan speed is now a **`select`** entity (Auto / Quiet / Low / Medium / High /
+  Blast). Quilt's fan is always in one of these modes — there is no "off" — so a select
+  models it correctly, unlike a fan entity's on/off toggle.
+- Exception translations: entity action failures and re-authentication errors now use
+  translatable messages (`exceptions` section in `strings.json`)
+- README: use cases and automation examples (presence-based setback, schedule
+  pausing, energy budgets, LED notifications) validated against a live system
+- Dynamic device support: indoor units, spaces, controllers, remote sensors, and
+  locations added to the Quilt account after setup now appear without a reload, and
+  devices removed from the account are cleaned from the HA registry at setup
+- Climate entities support `climate.turn_on` / `climate.turn_off`
+  (`ClimateEntityFeature.TURN_ON | TURN_OFF`)
+- Config flow: `data_description` help text for all input fields; reconfigure now
+  validates that the entry's home exists on the new account and keeps the entry's
+  unique ID consistent when the email changes
+- Cached authentication tokens are deleted from HA storage when the last config entry
+  for an account is removed
+- Removal instructions in the README
+
+### Removed
+- The `fan` platform / fan entity. The indoor unit fan cannot be turned off, so an HA fan
+  entity (which forces on/off semantics and previously faked "off" = Auto) was misleading.
+  Fan speed is now a `select` entity (see Added).
+- The **Fan speed (RPM)** and **Fan speed setpoint (RPM)** diagnostic sensors. Raw fan RPM
+  is a low-level reading; the meaningful fan speed (the `FanSpeed` enum) is surfaced by the
+  new fan speed select.
+- The multi-entry climate preset list. Quilt's comfort settings (Active/Sleep/Away/
+  Standby/Custom) are mostly internal schedule states applied automatically by Quilt's
+  scheduler, not user-selectable presets, so exposing them all as HA presets was
+  misleading. Only **Away** — a genuine user-facing state — is now exposed, as
+  `PRESET_AWAY` (see Added). Setpoint display still falls back to the active comfort
+  setting's values when the API returns placeholder setpoints.
+
+### Fixed
+- `HATokenStore.delete()` no longer risks raising on a corrupted (non-dict) token
+  cache file; it now defensively clears the store instead, matching `load()`'s
+  existing handling of malformed data.
+- The thermostat card no longer shows a low/high temperature range in single-setpoint
+  Heat or Cool mode. `target_temperature_low`/`target_temperature_high` are now reported
+  only in Heat/Cool (auto) mode, so Heat and Cool modes show a single target setpoint
+  instead of a spurious range alongside it.
+- Indoor unit and Dial devices are now named after the room they serve (e.g. "Family
+  Room Indoor Unit", "Family Room Dial") instead of Quilt's serial-based default name
+  ("Indoor Unit {serial}"). A genuine user-set name in the Quilt app is still respected;
+  only the serial-duplicating default is replaced (the serial is on the device card).
+- Control writes (LED on/off, fan speed, louver, climate setpoints/mode) now update the
+  entity state immediately from the write's return value instead of waiting for the next
+  stream push. A controls-only change is not always echoed on the notifier stream, so
+  toggling the LED light (and other controls) could appear to do nothing while streaming.
+- Turning the indoor unit LED on when its stored color was black (color code 0) now
+  defaults to white, so the light actually illuminates instead of staying dark.
+- Fallback polling never refreshed the coordinator's entity lookup indexes, so all
+  entities froze at their last streamed state whenever the stream was down and only
+  recovered on the next push
+- Authentication-failure detection was dead code: the coordinator matched an error
+  string ("jwt is expired") that quilt-hp-python never produces, so an expired refresh
+  token caused endless `UpdateFailed` errors instead of triggering HA's re-auth flow;
+  `QuiltAuthError` is now mapped to `ConfigEntryAuthFailed` in the polling, write, and
+  setup paths
+- `async_setup_entry` converted auth failures into `ConfigEntryNotReady`, retrying setup
+  forever instead of starting re-authentication
+- Re-authentication ended in an `already_configured` abort without updating or reloading
+  the entry (and could create a duplicate entry when listing systems failed); it now
+  ends with `reauth_successful` and reloads the entry
+- Coordinator shutdown skipped `super().async_shutdown()`, leaving the poll timer and
+  debouncer running against a closed gRPC channel after unload
+- A permanently dead stream (e.g. after a failed token refresh) was invisible:
+  `is_streaming` stayed `True` forever, post-write refreshes were skipped, and the
+  repair issue could never trigger; the coordinator now restarts a dead stream with
+  backoff, detects cleanly-ended streams from the poll path, and reports `is_streaming`
+  truthfully
+- The reconnect gap-fill refresh used the debounced request path, so the first push
+  after a reconnect cancelled it and state changed while disconnected could be lost
+  until the next poll; the refresh is now un-debounced
+- Frequent stream pushes rescheduled HA's poll timer indefinitely, so locations and
+  comfort settings (which are not streamed) went permanently stale in busy homes; a
+  stale-snapshot check now forces a full refresh at the polling cadence
+- A setup timeout (`asyncio.timeout` cancellation) bypassed the client cleanup in
+  `async_setup`, leaking a gRPC channel on every `ConfigEntryNotReady` retry
+- Config flow: adding a duplicate home leaked the paused login task and its gRPC
+  channel; abandoning the OTP dialog leaked them permanently (`async_remove` now cleans
+  up); an auth error at the email step was reported as "cannot connect" instead of an
+  authentication error
+- `light.turn_on` with no arguments was a no-op when the device reported the LED off
+  with a retained non-zero brightness; the restore guard now keys on the LED state
+- Duplicate `"entity"` JSON key in `strings.json`/`translations/en.json` silently
+  discarded the louver-mode state translations
+- Energy fetches could run concurrently from a burst of stream pushes and were retried
+  on every push while the energy endpoint was failing; fetches are now single-flight
+  and rate-limited on attempt time
+- NaN values from the API are now normalized to "unknown" for all numeric sensors
+  (humidity, power, COP, RPM, signal, presence level, light brightness), not just
+  temperatures, preventing `ValueError` state writes
+- Entities for devices removed from the Quilt account now become unavailable instead of
+  raising `KeyError` on every state update
+- `hass.async_create_task`-based reauth from stream-triggered energy fetches is guarded
+  when the config entry is missing
+
 ## [0.5.3] - 2026-07-02
 
 ### Fixed

@@ -16,7 +16,7 @@ from homeassistant.helpers.selector import (
 )
 import voluptuous as vol
 
-from quilt_hp import QuiltClient  # type: ignore[attr-defined]
+from quilt_hp import QuiltClient
 from quilt_hp.exceptions import QuiltAuthError
 
 from .const import (
@@ -55,9 +55,6 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # is preserved. Resolved via _otp_future when the user submits the OTP.
         self._login_task: asyncio.Task[None] | None = None
         self._otp_future: asyncio.Future[str] | None = None
-        # Set during async_step_reconfigure so the OTP success path can update
-        # the existing entry rather than creating a new one.
-        self._reconfigure_entry: config_entries.ConfigEntry | None = None
 
     # ------------------------------------------------------------------
     # Step 1: collect the email address and trigger the OTP send
@@ -128,7 +125,7 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return False, None
         except QuiltAuthError:
             await self._cleanup_login()
-            return False, "cannot_connect"
+            return False, "invalid_auth"
         except Exception:
             _LOGGER.exception("Unexpected error initiating Quilt login")
             await self._cleanup_login()
@@ -184,22 +181,18 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def _route_after_login(self) -> config_entries.ConfigFlowResult:
-        """After successful login, either pick a home or finish immediately.
+        """After successful login, finish according to the flow context.
 
-        In reconfigure context (``_reconfigure_entry`` is set), updates the
-        existing entry instead of creating a new one.
+        Reauth and reconfigure update the existing entry; the user flow
+        continues to home selection / entry creation.
         """
-        if self._reconfigure_entry is not None:
-            entry = self._reconfigure_entry
+        if self.source == config_entries.SOURCE_REAUTH:
+            entry = self._get_reauth_entry()
             await self._cleanup_login()
-            return self.async_update_reload_and_abort(
-                entry,
-                data={
-                    CONF_EMAIL: self._email,
-                    CONF_SYSTEM_ID: entry.data.get(CONF_SYSTEM_ID),
-                },
-                reason="reconfigure_successful",
-            )
+            return self.async_update_reload_and_abort(entry, reason="reauth_successful")
+
+        if self.source == config_entries.SOURCE_RECONFIGURE:
+            return await self._finish_reconfigure()
 
         try:
             assert self._client is not None
@@ -219,6 +212,41 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Multiple homes — show a selector.
         return await self.async_step_home()
+
+    async def _finish_reconfigure(self) -> config_entries.ConfigFlowResult:
+        """Update the reconfigured entry, keeping its unique ID consistent."""
+        entry = self._get_reconfigure_entry()
+        system_id: str | None = entry.data.get(CONF_SYSTEM_ID)
+
+        if self._email != entry.data.get(CONF_EMAIL) and system_id:
+            # Email changed — the entry's system must exist on the new account,
+            # otherwise the entry would point at a system it cannot reach.
+            try:
+                assert self._client is not None
+                systems = await self._client.list_systems()
+            except Exception:
+                _LOGGER.exception("Could not list Quilt systems during reconfigure")
+                await self._cleanup_login()
+                return self.async_abort(reason="reconfigure_failed")
+            if system_id not in {s.id for s in systems}:
+                await self._cleanup_login()
+                return self.async_abort(reason="unique_id_mismatch")
+
+        unique_id = f"{self._email}_{system_id}" if system_id else self._email
+        existing = self.hass.config_entries.async_entry_for_domain_unique_id(
+            DOMAIN, unique_id
+        )
+        if existing is not None and existing.entry_id != entry.entry_id:
+            await self._cleanup_login()
+            return self.async_abort(reason="already_configured")
+
+        await self._cleanup_login()
+        return self.async_update_reload_and_abort(
+            entry,
+            unique_id=unique_id,
+            data_updates={CONF_EMAIL: self._email},
+            reason="reconfigure_successful",
+        )
 
     # ------------------------------------------------------------------
     # Step 3 (conditional): pick which home to use
@@ -272,9 +300,11 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Unique ID: email + system_id so each home gets its own entry.
         unique_id = f"{self._email}_{system_id}" if system_id else self._email
         _ = await self.async_set_unique_id(unique_id)
+        # Clean up before the abort check so a duplicate add doesn't leak
+        # the paused login task and its gRPC channel.
+        await self._cleanup_login()
         self._abort_if_unique_id_configured()
 
-        await self._cleanup_login()
         title = home_name or self._email
         return self.async_create_entry(
             title=title,
@@ -293,10 +323,7 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, _: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Re-authentication entry point — prefill email and re-run OTP flow."""
-        entry_id: str = self.context.get("entry_id", "")
-        entry = self.hass.config_entries.async_get_entry(entry_id)
-        if entry:
-            self._email = entry.data[CONF_EMAIL]
+        self._email = self._get_reauth_entry().data[CONF_EMAIL]
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -329,34 +356,19 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         This is different from reauth - it allows changing the email address,
         not just re-authenticating with the same email.
         """
-        entry_id: str = self.context.get("entry_id", "")
-        entry = self.hass.config_entries.async_get_entry(entry_id)
-        if not entry:
-            return self.async_abort(reason="reconfigure_failed")
-
+        entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
 
         if user_input is not None:
             self._email = user_input[CONF_EMAIL].strip().lower()
-            # Record the entry being reconfigured so the OTP success path
-            # updates it rather than creating a new entry.
-            self._reconfigure_entry = entry
             otp_needed, error_key = await self._initiate_login()
             if error_key:
-                self._reconfigure_entry = None
                 errors["base"] = error_key
             elif otp_needed:
                 return await self.async_step_otp()
             else:
                 # Login succeeded without OTP — update the entry directly.
-                return self.async_update_reload_and_abort(
-                    entry,
-                    data={
-                        CONF_EMAIL: self._email,
-                        CONF_SYSTEM_ID: entry.data.get(CONF_SYSTEM_ID),
-                    },
-                    reason="reconfigure_successful",
-                )
+                return await self._finish_reconfigure()
 
         return self.async_show_form(
             step_id="reconfigure",
@@ -380,14 +392,24 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Cancel any in-flight login task and close the client."""
         if self._login_task is not None and not self._login_task.done():
             self._login_task.cancel()
-            with contextlib.suppress(BaseException):
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._login_task
         self._login_task = None
         self._otp_future = None
         if self._client is not None:
             with contextlib.suppress(Exception):
-                _ = await self._client.__aexit__(None, None, None)
+                await self._client.__aexit__(None, None, None)
             self._client = None
+
+    @override
+    def async_remove(self) -> None:
+        """Clean up when the flow is aborted or abandoned.
+
+        A user who dismisses the OTP dialog would otherwise leave the login
+        task parked on the OTP future and the gRPC channel open forever.
+        """
+        if self._login_task is not None or self._client is not None:
+            _ = self.hass.async_create_task(self._cleanup_login())
 
 
 class QuiltOptionsFlow(config_entries.OptionsFlow):

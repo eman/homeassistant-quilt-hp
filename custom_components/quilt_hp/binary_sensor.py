@@ -16,9 +16,8 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from quilt_hp.models.controller import Controller
@@ -26,10 +25,17 @@ from quilt_hp.models.enums import OccupancyState, Presence
 from quilt_hp.models.indoor_unit import IndoorUnit
 
 from .coordinator import QuiltCoordinator
+from .entity import (
+    QuiltControllerEntity,
+    QuiltIDUEntity,
+    async_setup_dynamic_entities,
+)
 
 if TYPE_CHECKING:
     from . import QuiltConfigEntry
-from .entity import QuiltEntity, controller_device_info, idu_device_info
+
+# Read-only coordinator-driven platform — no request throttling needed.
+PARALLEL_UPDATES = 0
 
 # ── IDU binary sensors ────────────────────────────────────────────────────────
 
@@ -43,7 +49,7 @@ class IDUBinarySensorDescription(BinarySensorEntityDescription):
 IDU_BINARY_SENSOR_DESCRIPTIONS: tuple[IDUBinarySensorDescription, ...] = (
     IDUBinarySensorDescription(
         key="motion",
-        name="Motion",
+        translation_key="motion",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda idu: (
             idu.presence.sensor0_presence == Presence.DETECTED
@@ -53,7 +59,7 @@ IDU_BINARY_SENSOR_DESCRIPTIONS: tuple[IDUBinarySensorDescription, ...] = (
     ),
     IDUBinarySensorDescription(
         key="presence",
-        name="Presence",
+        translation_key="presence",
         device_class=BinarySensorDeviceClass.PRESENCE,
         value_fn=lambda idu: (
             idu.presence.sensor1_presence == Presence.DETECTED
@@ -63,7 +69,7 @@ IDU_BINARY_SENSOR_DESCRIPTIONS: tuple[IDUBinarySensorDescription, ...] = (
     ),
     IDUBinarySensorDescription(
         key="occupied",
-        name="Occupied",
+        translation_key="occupied",
         device_class=BinarySensorDeviceClass.OCCUPANCY,
         value_fn=lambda idu: (
             None
@@ -73,7 +79,7 @@ IDU_BINARY_SENSOR_DESCRIPTIONS: tuple[IDUBinarySensorDescription, ...] = (
     ),
     IDUBinarySensorDescription(
         key="online",
-        name="Online",
+        translation_key="online",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: idu.is_online,
@@ -95,7 +101,7 @@ class ControllerBinarySensorDescription(BinarySensorEntityDescription):
 CONTROLLER_BINARY_SENSOR_DESCRIPTIONS: tuple[ControllerBinarySensorDescription, ...] = (
     ControllerBinarySensorDescription(
         key="online",
-        name="Online",
+        translation_key="online",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda ctrl: ctrl.is_online,
@@ -114,26 +120,32 @@ async def async_setup_entry(
 ) -> None:
     """Set up binary sensor entities from a config entry."""
     coordinator = entry.runtime_data
-    snapshot = coordinator.data
-    entities: list[BinarySensorEntity] = []
 
-    for idu in snapshot.indoor_units:
-        for desc in IDU_BINARY_SENSOR_DESCRIPTIONS:
-            entities.append(QuiltIDUBinarySensor(coordinator, idu.id, desc))
+    def _build_new(known: set[str]) -> list[tuple[str, BinarySensorEntity]]:
+        new: list[tuple[str, BinarySensorEntity]] = []
+        for idu in coordinator.data.indoor_units:
+            key = f"idu_{idu.id}"
+            if key in known:
+                continue
+            for desc in IDU_BINARY_SENSOR_DESCRIPTIONS:
+                new.append((key, QuiltIDUBinarySensor(coordinator, idu.id, desc)))
+        for ctrl in coordinator.data.controllers:
+            key = f"ctrl_{ctrl.id}"
+            if key in known:
+                continue
+            for ctrl_desc in CONTROLLER_BINARY_SENSOR_DESCRIPTIONS:
+                new.append(
+                    (key, QuiltControllerBinarySensor(coordinator, ctrl.id, ctrl_desc))
+                )
+        return new
 
-    for ctrl in snapshot.controllers:
-        for ctrl_desc in CONTROLLER_BINARY_SENSOR_DESCRIPTIONS:
-            entities.append(
-                QuiltControllerBinarySensor(coordinator, ctrl.id, ctrl_desc)
-            )
-
-    async_add_entities(entities)
+    async_setup_dynamic_entities(entry, coordinator, async_add_entities, _build_new)
 
 
 # ── Binary sensor entity classes ──────────────────────────────────────────────
 
 
-class QuiltIDUBinarySensor(QuiltEntity, BinarySensorEntity):
+class QuiltIDUBinarySensor(QuiltIDUEntity, BinarySensorEntity):
     """Binary sensor entity for a Quilt indoor unit (QSM)."""
 
     entity_description: IDUBinarySensorDescription
@@ -145,28 +157,13 @@ class QuiltIDUBinarySensor(QuiltEntity, BinarySensorEntity):
         description: IDUBinarySensorDescription,
     ) -> None:
         """Initialize the IDU binary sensor entity."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, idu_id)
         self.entity_description = description
-        self._idu_id: str = idu_id
         self._attr_unique_id: str = f"quilt_idu_{idu_id}_{description.key}"
 
-    @property
-    def _idu(self) -> IndoorUnit:
-        return self.coordinator.idu_by_id[self._idu_id]
-
-    @property
     @override
-    def device_info(self) -> DeviceInfo:
-        idu = self._idu
-        space = (
-            self.coordinator.spaces_by_id.get(idu.space_id) if idu.space_id else None
-        )
-        return idu_device_info(idu, space)
-
-    @property
-    @override
-    def available(self) -> bool:
-        return super().available and self.entity_description.available_fn(self._idu)
+    def _model_available(self, idu: IndoorUnit) -> bool:
+        return self.entity_description.available_fn(idu)
 
     @property
     @override
@@ -174,7 +171,7 @@ class QuiltIDUBinarySensor(QuiltEntity, BinarySensorEntity):
         return self.entity_description.value_fn(self._idu)
 
 
-class QuiltControllerBinarySensor(QuiltEntity, BinarySensorEntity):
+class QuiltControllerBinarySensor(QuiltControllerEntity, BinarySensorEntity):
     """Binary sensor entity for a Quilt Controller (Dial)."""
 
     entity_description: ControllerBinarySensorDescription
@@ -186,30 +183,13 @@ class QuiltControllerBinarySensor(QuiltEntity, BinarySensorEntity):
         description: ControllerBinarySensorDescription,
     ) -> None:
         """Initialize the controller binary sensor entity."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, ctrl_id)
         self.entity_description = description
-        self._ctrl_id: str = ctrl_id
         self._attr_unique_id: str = f"quilt_ctrl_{ctrl_id}_{description.key}"
 
-    @property
-    def _ctrl(self) -> Controller:
-        return self.coordinator.ctrl_by_id[self._ctrl_id]
-
-    @property
     @override
-    def device_info(self) -> DeviceInfo:
-        ctrl = self._ctrl
-        idu = (
-            self.coordinator.idu_by_space_id.get(ctrl.space_id)
-            if ctrl.space_id
-            else None
-        )
-        return controller_device_info(ctrl, idu)
-
-    @property
-    @override
-    def available(self) -> bool:
-        return super().available and self.entity_description.available_fn(self._ctrl)
+    def _model_available(self, ctrl: Controller) -> bool:
+        return self.entity_description.available_fn(ctrl)
 
     @property
     @override

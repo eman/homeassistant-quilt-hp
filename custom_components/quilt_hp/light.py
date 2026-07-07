@@ -13,17 +13,16 @@ from homeassistant.components.light import (
     LightEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from quilt_hp.models.enums import LedAnimation
-from quilt_hp.models.indoor_unit import IndoorUnit
 
 from .coordinator import QuiltCoordinator
+from .entity import QuiltIDUEntity, async_setup_dynamic_entities
+from .utils import normalize_float
 
 if TYPE_CHECKING:
     from . import QuiltConfigEntry
-from .entity import QuiltEntity, idu_device_info
 
 # Limit concurrent updates to avoid overwhelming the device
 PARALLEL_UPDATES = 1
@@ -55,6 +54,8 @@ _ANIMATION_TO_EFFECT: dict[LedAnimation, str] = {
     animation: effect for effect, animation in _EFFECT_TO_ANIMATION.items()
 }
 
+_SUPPORTED_COLOR_MODES: set[ColorMode] = {ColorMode.RGBW}
+
 
 async def async_setup_entry(
     _hass: HomeAssistant,
@@ -63,41 +64,29 @@ async def async_setup_entry(
 ) -> None:
     """Set up light entities from a config entry."""
     coordinator = entry.runtime_data
-    snapshot = coordinator.data
 
-    entities = [QuiltLightEntity(coordinator, idu.id) for idu in snapshot.indoor_units]
-    async_add_entities(entities)
+    def _build_new(known: set[str]) -> list[tuple[str, QuiltLightEntity]]:
+        return [
+            (idu.id, QuiltLightEntity(coordinator, idu.id))
+            for idu in coordinator.data.indoor_units
+            if idu.id not in known
+        ]
+
+    async_setup_dynamic_entities(entry, coordinator, async_add_entities, _build_new)
 
 
-class QuiltLightEntity(QuiltEntity, LightEntity):
+class QuiltLightEntity(QuiltIDUEntity, LightEntity):
     """Light entity representing an indoor unit's LED light."""
 
     _attr_color_mode: ColorMode = ColorMode.RGBW
     _attr_translation_key: str = "led"
     _attr_supported_features: LightEntityFeature = LightEntityFeature.EFFECT
+    _attr_supported_color_modes: set[ColorMode] = _SUPPORTED_COLOR_MODES
 
     def __init__(self, coordinator: QuiltCoordinator, idu_id: str) -> None:
         """Initialize the light entity."""
-        super().__init__(coordinator)
-        self._idu_id: str = idu_id
+        super().__init__(coordinator, idu_id)
         self._attr_unique_id: str = f"quilt_idu_light_{idu_id}"
-        self._attr_supported_color_modes: set[ColorMode] = {ColorMode.RGBW}
-
-    @property
-    def _idu(self) -> IndoorUnit:
-        return self.coordinator.idu_by_id[self._idu_id]
-
-    @property
-    @override
-    def device_info(self) -> DeviceInfo:
-        idu = self._idu
-        space = self.coordinator.spaces_by_id.get(idu.space_id)
-        return idu_device_info(idu, space)
-
-    @property
-    @override
-    def available(self) -> bool:
-        return super().available and self._idu.is_online
 
     @property
     @override
@@ -107,7 +96,8 @@ class QuiltLightEntity(QuiltEntity, LightEntity):
     @property
     @override
     def brightness(self) -> int | None:
-        return round(self._idu.controls.led_brightness * 255)
+        brightness = normalize_float(self._idu.controls.led_brightness)
+        return round(brightness * 255) if brightness is not None else None
 
     @property
     @override
@@ -134,11 +124,22 @@ class QuiltLightEntity(QuiltEntity, LightEntity):
         color_code = _encode_rgbw(*rgbw) if rgbw is not None else None
         animation = _EFFECT_TO_ANIMATION.get(effect) if effect is not None else None
 
-        # Note: Library does not yet support explicit led_state ON/OFF
-        # in set_indoor_unit. We control it via brightness and color code.
+        # Note: quilt-hp-python 0.5.5 does not support explicit led_state
+        # ON/OFF in set_indoor_unit; the LED is controlled via brightness.
+        # The device may report led_state OFF while retaining a nonzero
+        # brightness, so key the restore on the actual on/off state.
         target_brightness = brightness_pct
-        if target_brightness is None and self.brightness == 0:
+        if target_brightness is None and not self._idu.led_on:
             target_brightness = 1.0
+
+        # A zero color code renders no light regardless of brightness, so when
+        # turning the LED on without an explicit color, fall back to white.
+        if (
+            color_code is None
+            and not self._idu.led_on
+            and self._idu.controls.led_color_code == 0
+        ):
+            color_code = _encode_rgbw(255, 255, 255, 255)
 
         await self.coordinator.async_set_indoor_unit(
             self._idu,
@@ -150,8 +151,8 @@ class QuiltLightEntity(QuiltEntity, LightEntity):
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
-        # Note: Library does not yet support explicit led_state ON/OFF
-        # in set_indoor_unit.
+        # Note: quilt-hp-python 0.5.5 does not support explicit led_state
+        # ON/OFF in set_indoor_unit.
         await self.coordinator.async_set_indoor_unit(
             self._idu,
             led_brightness=0.0,
