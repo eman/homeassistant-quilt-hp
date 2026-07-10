@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/eman/homeassistant-quilt-hp/issues",
   "loggers": ["quilt_hp"],
   "requirements": ["quilt-hp-python>=0.5.6"],
-  "version": "0.5.3"
+  "version": "6.0.0"
 }

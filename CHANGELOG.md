@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-07-09
+
 ### Changed
 - Upgraded `quilt-hp-python` dependency to `>=0.5.6`
   - 0.5.6 resolves `IndoorUnit` hardware exposure
@@ -307,7 +309,8 @@
 - JWT token persistence via `HATokenStore` (HA `Storage` API)
 - Automatic token refresh with transparent re-login on expiry
 
-[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.0...HEAD
+[6.0.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.3...v6.0.0
 [0.5.3]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.0...v0.5.1
