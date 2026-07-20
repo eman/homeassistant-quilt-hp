@@ -152,6 +152,9 @@
       "temperature": {
         "name": "Temperature"
       },
+      "onboard_temperature": {
+        "name": "Onboard temperature"
+      },
       "humidity": {
         "name": "Humidity"
       },

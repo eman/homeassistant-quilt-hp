@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from quilt_hp.models.enums import ComfortSettingType
+from quilt_hp.models.enums import ComfortSettingType, HVACState
 
 from custom_components.quilt_hp.sensor import (
     CONTROLLER_REMOTE_SENSOR_DESCRIPTIONS,
@@ -516,7 +516,9 @@ def _idu_with_metrics(hass, **overrides):
 
 def test_idu_cop_zero_when_idle_is_unknown(hass) -> None:
     """The wire reports COP 0 when not actively heating/cooling → unknown."""
-    coordinator = _idu_with_metrics(hass, coefficient_of_performance=0.0)
+    coordinator = _idu_with_metrics(
+        hass, coefficient_of_performance=0.0, hvac_state=HVACState.STANDBY
+    )
     desc = next(
         d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "coefficient_of_performance"
     )
@@ -534,7 +536,9 @@ def test_idu_cop_reported_when_running(hass) -> None:
 
 
 def test_idu_capacity_zero_when_idle_is_unknown(hass) -> None:
-    coordinator = _idu_with_metrics(hass, capacity_w=0.0)
+    coordinator = _idu_with_metrics(
+        hass, capacity_w=0.0, hvac_state=HVACState.STANDBY
+    )
     desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "hvac_capacity")
     entity = QuiltIDUSensor(coordinator, "idu-001", desc)
     assert entity.native_value is None
