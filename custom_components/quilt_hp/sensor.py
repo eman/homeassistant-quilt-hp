@@ -131,8 +131,11 @@ class IDUSensorDescription(SensorEntityDescription):
 
 IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
     IDUSensorDescription(
+        # Raw onboard sensor — reads 1-3 °C above the true room temperature
+        # (self-heating / ceiling placement). The authoritative room reading
+        # is the Space temperature sensor (Dial-corrected control input).
         key="ambient_temperature",
-        translation_key="temperature",
+        translation_key="onboard_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -188,8 +191,10 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPower.WATT,
         entity_category=EntityCategory.DIAGNOSTIC,
+        # The wire reports 0 whenever the unit is not actively heating or
+        # cooling — that's "not computing", not a measurement.
         value_fn=lambda idu: (
-            normalize_float(idu.performance_metrics.capacity_w)
+            normalize_float(idu.performance_metrics.capacity_w) or None
             if idu.performance_metrics
             else None
         ),
@@ -228,8 +233,9 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
         translation_key="coefficient_of_performance",
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
+        # 0 on the wire means "not computing" (unit idle), not a COP of 0.
         value_fn=lambda idu: (
-            _rounded(idu.performance_metrics.coefficient_of_performance, 2)
+            _rounded(idu.performance_metrics.coefficient_of_performance, 2) or None
             if idu.performance_metrics
             else None
         ),

@@ -495,3 +495,53 @@ def test_qsm_sensor_unavailable_without_qsm(coordinator) -> None:
     entity = QuiltQSMSensor(coordinator, "idu-001", desc)
     assert not entity.available
     assert entity.native_value is None
+
+
+def _idu_with_metrics(hass, **overrides):
+    from quilt_hp.models.indoor_unit import IndoorUnitPerformanceMetrics
+
+    idu = make_idu()
+    defaults = {
+        "capacity_w": 0.0,
+        "coefficient_of_performance": 0.0,
+        "hvac_power_w": 2.26,
+        "led_power_w": 0.0,
+        "hvac_mode": idu.state.hvac_mode,
+        "hvac_state": idu.state.hvac_state,
+    }
+    defaults.update(overrides)
+    idu.performance_metrics = IndoorUnitPerformanceMetrics(**defaults)  # type: ignore[misc]
+    return make_mock_coordinator(hass, make_snapshot(indoor_units=[idu]))
+
+
+def test_idu_cop_zero_when_idle_is_unknown(hass) -> None:
+    """The wire reports COP 0 when not actively heating/cooling → unknown."""
+    coordinator = _idu_with_metrics(hass, coefficient_of_performance=0.0)
+    desc = next(
+        d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "coefficient_of_performance"
+    )
+    entity = QuiltIDUSensor(coordinator, "idu-001", desc)
+    assert entity.native_value is None
+
+
+def test_idu_cop_reported_when_running(hass) -> None:
+    coordinator = _idu_with_metrics(hass, coefficient_of_performance=3.517)
+    desc = next(
+        d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "coefficient_of_performance"
+    )
+    entity = QuiltIDUSensor(coordinator, "idu-001", desc)
+    assert entity.native_value == 3.52
+
+
+def test_idu_capacity_zero_when_idle_is_unknown(hass) -> None:
+    coordinator = _idu_with_metrics(hass, capacity_w=0.0)
+    desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "hvac_capacity")
+    entity = QuiltIDUSensor(coordinator, "idu-001", desc)
+    assert entity.native_value is None
+
+
+def test_idu_capacity_reported_when_running(hass) -> None:
+    coordinator = _idu_with_metrics(hass, capacity_w=2800.0)
+    desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "hvac_capacity")
+    entity = QuiltIDUSensor(coordinator, "idu-001", desc)
+    assert entity.native_value == 2800.0
