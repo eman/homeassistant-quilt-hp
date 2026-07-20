@@ -58,23 +58,6 @@ class IDUBinarySensorDescription(BinarySensorEntityDescription):
     available_fn: Callable[[IndoorUnit], bool] = lambda idu: idu.is_online
 
 
-def _combined_presence(idu: IndoorUnit) -> bool | None:
-    """Realtime room presence — OR of both radar channels.
-
-    Mirrors the vendor app's ``combinedSensorPresence``. Returns None when
-    the radar hasn't reported (no presence data or both channels
-    UNSPECIFIED).
-    """
-    if idu.presence is None:
-        return None
-    channels = (idu.presence.sensor0_presence, idu.presence.sensor1_presence)
-    if Presence.DETECTED in channels:
-        return True
-    if Presence.UNDETECTED in channels:
-        return False
-    return None
-
-
 def _radar_channel_presence(presence_val: Presence | None) -> bool | None:
     """Map a raw radar channel presence enum value to bool or None.
 
@@ -96,7 +79,7 @@ IDU_BINARY_SENSOR_DESCRIPTIONS: tuple[IDUBinarySensorDescription, ...] = (
         key="presence",
         translation_key="presence",
         device_class=BinarySensorDeviceClass.OCCUPANCY,
-        value_fn=_combined_presence,
+        value_fn=lambda idu: idu.presence_detected,
     ),
     IDUBinarySensorDescription(
         key="occupied",
