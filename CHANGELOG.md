@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Changed
+- **Occupancy sensor naming reworked** so realtime and derived signals are
+  distinguishable ([#12](https://github.com/eman/homeassistant-quilt-hp/issues/12)):
+  - **Presence** is now the realtime room-presence sensor: it turns on if *either*
+    radar channel detects someone (the same OR the Quilt app uses), instead of
+    reflecting channel 1 only. Device class changed `presence` → `occupancy`
+    (states read "Detected"/"Clear" instead of "Home"/"Away"). Unique ID is
+    unchanged, so history and automations carry over; the value is identical in
+    practice — the two channels move in lockstep.
+  - **Occupied** is renamed **Occupancy (auto-away)** — it is Quilt's debounced
+    away/return decision (~3 min of sustained presence to set, ~20 min of absence
+    to clear), not an instant sensor.
+  - **Motion** is renamed **Radar channel 0** and demoted to a diagnostic entity
+    (disabled by default for new installs; existing installs keep it as-is, same
+    unique ID). The `motion` device class is dropped: there is no evidence the
+    channel is motion-specific — "motion = phase radar, presence = target radar"
+    was speculation. A matching **Radar channel 1** diagnostic is added.
+  - The analog QSM diagnostics **Motion signal (radar)** / **Presence signal
+    (radar)** are renamed **Radar phase signal** / **Radar target signal**
+    (matching the actual wire field names). Note these come from a telemetry
+    block the cloud API does not populate, so they may never report a value.
+  - README gains a "Presence vs occupancy" section documenting the three-tier
+    model and its latencies.
+
 ## [6.0.0] - 2026-07-09
 
 ### Changed

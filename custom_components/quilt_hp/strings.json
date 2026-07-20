@@ -82,14 +82,17 @@
   },
   "entity": {
     "binary_sensor": {
-      "motion": {
-        "name": "Motion"
-      },
       "presence": {
         "name": "Presence"
       },
       "occupied": {
-        "name": "Occupied"
+        "name": "Occupancy (auto-away)"
+      },
+      "radar_channel_0": {
+        "name": "Radar channel 0"
+      },
+      "radar_channel_1": {
+        "name": "Radar channel 1"
       },
       "online": {
         "name": "Online"
@@ -192,10 +195,10 @@
         "name": "Module power"
       },
       "motion_signal": {
-        "name": "Motion signal"
+        "name": "Radar phase signal"
       },
       "presence_signal": {
-        "name": "Presence signal"
+        "name": "Radar target signal"
       },
       "illuminance": {
         "name": "Illuminance"

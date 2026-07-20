@@ -38,15 +38,16 @@ async def test_async_setup_entry(hass) -> None:
     entities = []
     await async_setup_entry(hass, entry, lambda x: entities.extend(x))
 
-    # Should create 4 IDU sensors + 1 controller sensor
-    assert len(entities) == 5
+    # Should create 5 IDU sensors + 1 controller sensor
+    assert len(entities) == 6
 
 
-async def test_idu_motion_sensor(hass) -> None:
-    """Test IDU motion sensor (sensor0_presence)."""
+async def test_idu_presence_sensor_or_of_channels(hass) -> None:
+    """Presence is the OR of both radar channels (vendor-app semantics)."""
     idu = make_idu()
     idu.presence = MagicMock()
-    idu.presence.sensor0_presence = Presence.DETECTED
+    idu.presence.sensor0_presence = Presence.UNDETECTED
+    idu.presence.sensor1_presence = Presence.DETECTED
 
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
@@ -57,24 +58,62 @@ async def test_idu_motion_sensor(hass) -> None:
 
     assert sensor.is_on is True
     assert sensor.available
-    assert sensor.unique_id == f"quilt_idu_{idu.id}_motion"
+    assert sensor.unique_id == f"quilt_idu_{idu.id}_presence"
 
 
-async def test_idu_presence_sensor(hass) -> None:
-    """Test IDU presence sensor (sensor1_presence)."""
+async def test_idu_presence_sensor_clear(hass) -> None:
+    """Presence is off when both channels report UNDETECTED."""
     idu = make_idu()
     idu.presence = MagicMock()
+    idu.presence.sensor0_presence = Presence.UNDETECTED
     idu.presence.sensor1_presence = Presence.UNDETECTED
 
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
 
     sensor = QuiltIDUBinarySensor(
-        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[1]
+        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[0]
     )
 
     assert sensor.is_on is False
     assert sensor.available
+
+
+async def test_idu_presence_sensor_unreported(hass) -> None:
+    """Presence is unknown when both channels are UNSPECIFIED."""
+    idu = make_idu()
+    idu.presence = MagicMock()
+    idu.presence.sensor0_presence = Presence.UNSPECIFIED
+    idu.presence.sensor1_presence = Presence.UNSPECIFIED
+
+    snapshot = make_snapshot(indoor_units=[idu])
+    coordinator = make_mock_coordinator(hass, snapshot)
+
+    sensor = QuiltIDUBinarySensor(
+        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[0]
+    )
+
+    assert sensor.is_on is None
+
+
+async def test_idu_radar_channel_sensors(hass) -> None:
+    """Raw radar channel diagnostics report their own channel only."""
+    idu = make_idu()
+    idu.presence = MagicMock()
+    idu.presence.sensor0_presence = Presence.DETECTED
+    idu.presence.sensor1_presence = Presence.UNDETECTED
+
+    snapshot = make_snapshot(indoor_units=[idu])
+    coordinator = make_mock_coordinator(hass, snapshot)
+
+    ch0 = QuiltIDUBinarySensor(coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[2])
+    ch1 = QuiltIDUBinarySensor(coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[3])
+
+    assert ch0.is_on is True
+    assert ch1.is_on is False
+    # Channel 0 keeps the legacy "motion" unique_id for registry continuity
+    assert ch0.unique_id == f"quilt_idu_{idu.id}_motion"
+    assert ch1.unique_id == f"quilt_idu_{idu.id}_radar_1"
 
 
 async def test_idu_occupied_sensor(hass) -> None:
@@ -88,7 +127,7 @@ async def test_idu_occupied_sensor(hass) -> None:
     coordinator = make_mock_coordinator(hass, snapshot)
 
     sensor = QuiltIDUBinarySensor(
-        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[2]
+        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[1]
     )
 
     assert sensor.is_on is True
@@ -103,7 +142,7 @@ async def test_idu_online_sensor(hass) -> None:
     coordinator = make_mock_coordinator(hass, snapshot)
 
     sensor = QuiltIDUBinarySensor(
-        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[3]
+        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[4]
     )
 
     assert sensor.is_on is True

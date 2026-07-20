@@ -22,7 +22,7 @@ For protocol details, streaming behavior, and the full client feature set, see t
 - **Light entities** — toggle and dim indoor unit LED, set RGBW color and animation effect
 - **Select entities** — fan speed (Auto / Quiet / Low / Medium / High / Blast), louver mode
   (Closed / Sweep / Fixed / Auto), and fixed louver angle
-- **Binary sensor entities** — motion, presence, occupancy, and connectivity status per IDU
+- **Binary sensor entities** — realtime presence, debounced occupancy (auto-away), raw radar channels, and connectivity status per IDU
 - **Switch entities** — pause or resume all Quilt schedules for a location
 - **Real-time updates** — powered by Quilt's bidirectional gRPC stream with auto-reconnect
 - **Polling fallback** — configurable interval fetch if the stream is unavailable
@@ -185,9 +185,8 @@ the speed) plus explicit **Quiet / Low / Medium / High / Blast** speeds. Quilt's
 | Louver angle | `select` | Enabled |
 | Temperature (IDU sensor) | `sensor` | Enabled |
 | Humidity | `sensor` | Enabled |
-| Motion | `binary_sensor` | Enabled |
 | Presence | `binary_sensor` | Enabled |
-| Occupied | `binary_sensor` | Enabled |
+| Occupancy (auto-away) | `binary_sensor` | Enabled |
 | Inlet temperature | `sensor` | Disabled |
 | Outlet temperature | `sensor` | Disabled |
 | Presence level | `sensor` | Disabled |
@@ -195,10 +194,27 @@ the speed) plus explicit **Quiet / Low / Medium / High / Blast** speeds. Quilt's
 | HVAC power | `sensor` | Disabled |
 | Coefficient of performance | `sensor` | Disabled |
 | Calibrated temperature | `sensor` | Disabled |
-| Motion signal (radar) | `sensor` | Disabled |
-| Presence signal (radar) | `sensor` | Disabled |
+| Radar channel 0 | `binary_sensor` | Disabled |
+| Radar channel 1 | `binary_sensor` | Disabled |
+| Radar phase signal | `sensor` | Disabled |
+| Radar target signal | `sensor` | Disabled |
 | Illuminance | `sensor` | Disabled |
 | Online | `binary_sensor` | Disabled |
+
+#### Presence vs occupancy
+
+Quilt exposes room-presence data at three latencies; the entities are named so the
+fast and slow signals aren't confused:
+
+| Entity | Latency | What it is |
+|---|---|---|
+| **Presence** | seconds | Realtime radar presence — on while someone is in the room. Combines both radar detection channels the way the Quilt app does (on if either detects). Use this for lighting/automation triggers. |
+| **Occupancy (auto-away)** | minutes | Quilt's debounced occupancy decision — the signal that drives away/return setback. Needs roughly 3 minutes of sustained presence to turn on and 20 minutes of absence to turn off (configurable per space in the Quilt app). A short walk-through won't move it. |
+| **Radar channel 0 / 1** | seconds | The raw per-channel radar detections behind **Presence**, exposed as diagnostics. The two channels belong to the IDU's single radar and track each other closely; which physical measurement each represents is not documented by Quilt. |
+
+The **Radar phase signal** / **Radar target signal** analog diagnostics come from a
+QSM telemetry block that Quilt's cloud API does not currently populate, so they may
+remain unknown indefinitely.
 
 ### Per Outdoor Unit (ODU)
 
@@ -260,9 +276,11 @@ and include:
 - **Room-by-room comfort** — each Quilt space is a `climate` entity with its own
   setpoints and mode, so bedrooms, offices, and living areas can follow different
   targets and schedules.
-- **Presence-aware HVAC** — every indoor unit exposes radar-based `motion`, `presence`,
-  and `occupied` binary sensors. Use them to set back unoccupied rooms or as
-  general-purpose occupancy sensors for lighting and security automations.
+- **Presence-aware HVAC** — every indoor unit exposes a realtime radar-based
+  `presence` binary sensor (seconds latency; great for lighting and security
+  automations) and a debounced `occupancy (auto-away)` sensor that mirrors
+  Quilt's own away/return decision (minutes latency; great for HVAC-style
+  setback logic).
 - **Energy tracking** — the per-room *Energy today* sensors plug directly into HA's
   Energy dashboard (add them as individual devices) and reset at local midnight.
 - **Schedule control** — the per-home *Schedules* switch pauses or resumes all Quilt
