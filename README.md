@@ -183,7 +183,7 @@ the speed) plus explicit **Quiet / Low / Medium / High / Blast** speeds. Quilt's
 | LED | `light` | Enabled |
 | Louver mode | `select` | Enabled |
 | Louver angle | `select` | Enabled |
-| Temperature (IDU sensor) | `sensor` | Enabled |
+| Onboard temperature | `sensor` | Enabled |
 | Humidity | `sensor` | Enabled |
 | Presence | `binary_sensor` | Enabled |
 | Occupancy (auto-away) | `binary_sensor` | Enabled |
@@ -212,9 +212,33 @@ fast and slow signals aren't confused:
 | **Occupancy (auto-away)** | minutes | Quilt's debounced occupancy decision — the signal that drives away/return setback. Needs roughly 3 minutes of sustained presence to turn on and 20 minutes of absence to turn off (configurable per space in the Quilt app). A short walk-through won't move it. |
 | **Radar channel 0 / 1** | seconds | The raw per-channel radar detections behind **Presence**, exposed as diagnostics. The two channels belong to the IDU's single radar and track each other closely; which physical measurement each represents is not documented by Quilt. |
 
-The **Radar phase signal** / **Radar target signal** analog diagnostics come from a
-QSM telemetry block that Quilt's cloud API does not currently populate, so they may
-remain unknown indefinitely.
+The **Radar phase signal**, **Radar target signal**, and **Illuminance** analog
+diagnostics come from a QSM telemetry block that Quilt's cloud API does not
+currently populate, so they may remain unknown indefinitely. **Presence level**
+reads a wire field that has only ever been observed as `0.0` (even in occupied
+rooms) and whose semantics the Quilt app itself never uses — it is kept in case
+a future firmware/cloud update starts feeding it.
+
+#### Temperatures
+
+Each indoor unit device exposes three room-temperature readings; they are *not*
+interchangeable:
+
+| Entity | What it is |
+|---|---|
+| **Space temperature** | The authoritative room temperature — the Dial's self-heating-corrected reading, which is the exact value Quilt's control loop targets. The climate entity's current temperature uses this. |
+| **Onboard temperature** | The IDU's raw onboard sensor. Reads 1–3 °C above the true room temperature (self-heating and near-ceiling placement). Useful for trend/diagnostic purposes only. |
+| **Calibrated temperature** | The IDU's own corrected estimate of room temperature (closely tracks Space temperature). |
+
+#### Power and efficiency diagnostics
+
+- **HVAC power** is total measured unit draw, not compressor-only: in standby it
+  reads the ~2.3 W electronics baseline, and LED/PSU overhead also lands here.
+- **Module power** is the unit's per-interval (~5 s) energy measurement converted
+  to watts; it excludes the LED and reads ~2.3 W in standby.
+- **Coefficient of performance** and **HVAC capacity** report a value only while
+  the unit is actively heating or cooling; when idle they are unknown (the wire
+  reports 0, which the integration treats as "not applicable" rather than data).
 
 ### Per Outdoor Unit (ODU)
 

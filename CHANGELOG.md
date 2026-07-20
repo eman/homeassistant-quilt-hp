@@ -3,6 +3,24 @@
 ## [Unreleased]
 
 ### Changed
+- **Analog sensor audit**
+  ([#14](https://github.com/eman/homeassistant-quilt-hp/issues/14)):
+  - **Coefficient of performance** and **HVAC capacity** now report *unknown*
+    instead of `0` when the unit is not actively heating or cooling — the wire's
+    0 means "not computing", and treating it as data polluted long-term
+    statistics with zeros.
+  - The IDU **Temperature** sensor is renamed **Onboard temperature** (unique ID
+    unchanged): it is the raw onboard sensor and reads 1–3 °C above the true
+    room temperature due to self-heating and ceiling placement. The
+    authoritative room reading is **Space temperature** (the Dial-corrected
+    value Quilt's control loop uses — verified identical on the wire), which the
+    climate entity already reports. A README "Temperatures" section explains all
+    three readings.
+  - README documents that **Illuminance** (like the radar signal diagnostics)
+    comes from a QSM telemetry block the cloud API never populates, that
+    **Presence level** has only ever been observed as 0.0 with unknown
+    semantics, and what **HVAC power** / **Module power** actually measure
+    (~2.3 W electronics baseline in standby; module power excludes the LED).
 - **Occupancy sensor naming reworked** so realtime and derived signals are
   distinguishable ([#12](https://github.com/eman/homeassistant-quilt-hp/issues/12)):
   - **Presence** is now the realtime room-presence sensor: it turns on if *either*
