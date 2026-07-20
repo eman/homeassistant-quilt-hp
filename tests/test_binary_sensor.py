@@ -116,6 +116,23 @@ async def test_idu_radar_channel_sensors(hass) -> None:
     assert ch1.unique_id == f"quilt_idu_{idu.id}_radar_1"
 
 
+async def test_idu_radar_channel_sensors_unspecified(hass) -> None:
+    """Raw radar channel diagnostics return None for UNSPECIFIED."""
+    idu = make_idu()
+    idu.presence = MagicMock()
+    idu.presence.sensor0_presence = Presence.UNSPECIFIED
+    idu.presence.sensor1_presence = Presence.UNSPECIFIED
+
+    snapshot = make_snapshot(indoor_units=[idu])
+    coordinator = make_mock_coordinator(hass, snapshot)
+
+    ch0 = QuiltIDUBinarySensor(coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[2])
+    ch1 = QuiltIDUBinarySensor(coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[3])
+
+    assert ch0.is_on is None
+    assert ch1.is_on is None
+
+
 async def test_idu_occupied_sensor(hass) -> None:
     """Test IDU occupied sensor (effective_occupancy_state)."""
     idu = make_idu()

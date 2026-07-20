@@ -75,6 +75,19 @@ def _combined_presence(idu: IndoorUnit) -> bool | None:
     return None
 
 
+def _radar_channel_presence(presence_val: Presence | None) -> bool | None:
+    """Map a raw radar channel presence enum value to bool or None.
+
+    Returns True for DETECTED, False for UNDETECTED, and None for
+    UNSPECIFIED (or missing presence data).
+    """
+    if presence_val == Presence.DETECTED:
+        return True
+    if presence_val == Presence.UNDETECTED:
+        return False
+    return None
+
+
 IDU_BINARY_SENSOR_DESCRIPTIONS: tuple[IDUBinarySensorDescription, ...] = (
     IDUBinarySensorDescription(
         # Key kept as "presence" so existing entities/history carry over;
@@ -104,7 +117,7 @@ IDU_BINARY_SENSOR_DESCRIPTIONS: tuple[IDUBinarySensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         value_fn=lambda idu: (
-            idu.presence.sensor0_presence == Presence.DETECTED
+            _radar_channel_presence(idu.presence.sensor0_presence)
             if idu.presence is not None
             else None
         ),
@@ -115,7 +128,7 @@ IDU_BINARY_SENSOR_DESCRIPTIONS: tuple[IDUBinarySensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         value_fn=lambda idu: (
-            idu.presence.sensor1_presence == Presence.DETECTED
+            _radar_channel_presence(idu.presence.sensor1_presence)
             if idu.presence is not None
             else None
         ),
