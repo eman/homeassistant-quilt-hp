@@ -536,9 +536,7 @@ def test_idu_cop_reported_when_running(hass) -> None:
 
 
 def test_idu_capacity_zero_when_idle_is_unknown(hass) -> None:
-    coordinator = _idu_with_metrics(
-        hass, capacity_w=0.0, hvac_state=HVACState.STANDBY
-    )
+    coordinator = _idu_with_metrics(hass, capacity_w=0.0, hvac_state=HVACState.STANDBY)
     desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "hvac_capacity")
     entity = QuiltIDUSensor(coordinator, "idu-001", desc)
     assert entity.native_value is None
