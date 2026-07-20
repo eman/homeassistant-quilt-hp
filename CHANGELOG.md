@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Changed
+- Bumped `quilt-hp-python` dependency to `>=0.5.7` and updated the realtime **Presence** binary sensor to use `IndoorUnit.presence_detected`.
 - **Analog sensor audit**
   ([#14](https://github.com/eman/homeassistant-quilt-hp/issues/14)):
   - **Coefficient of performance** and **HVAC capacity** now report *unknown*
