@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [6.0.1] - 2026-07-20
+
 ### Changed
 - Bumped `quilt-hp-python` dependency to `>=0.5.7` and updated the realtime **Presence** binary sensor to use `IndoorUnit.presence_detected`.
 - **Analog sensor audit**
@@ -352,7 +354,8 @@
 - JWT token persistence via `HATokenStore` (HA `Storage` API)
 - Automatic token refresh with transparent re-login on expiry
 
-[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.0...HEAD
+[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.1...HEAD
+[6.0.1]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.3...v6.0.0
 [0.5.3]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.1...v0.5.2
