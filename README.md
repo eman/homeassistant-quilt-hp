@@ -35,14 +35,31 @@ For protocol details, streaming behavior, and the full client feature set, see t
 
 ## Installation
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eman&repository=homeassistant-quilt-hp)
+> **Note:** This integration is not yet in the HACS default store — it is
+> currently waiting on review by the HACS maintainers. Until then, searching for
+> it in HACS will fail with an error like *"Repository eman/homeassistant-quilt-hp
+> not found"*. Install it by adding this repository as a **custom repository**
+> as described below.
 
-### HACS (recommended)
+### HACS custom repository (recommended)
 
-1. Add this repository as a custom repository in HACS
-   (category: **Integration**, URL: `https://github.com/eman/homeassistant-quilt-hp`).
-2. Install **Quilt Heat Pump**.
-3. Restart Home Assistant.
+Click the badge to add the repository to HACS in one step:
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eman&repository=homeassistant-quilt-hp&category=integration)
+
+Or add it manually:
+
+1. In Home Assistant, open **HACS** from the sidebar.
+2. Click the **⋮** (three dots menu) in the top-right corner and select
+   **Custom repositories**.
+3. Enter the repository URL `https://github.com/eman/homeassistant-quilt-hp`,
+   choose type **Integration**, and click **Add**.
+4. Close the dialog, search HACS for **Quilt Heat Pump**, and open it.
+5. Click **Download** and confirm.
+6. Restart Home Assistant.
+
+Once the repository is accepted into the HACS default store, the custom
+repository entry is no longer needed and updates will continue to work as usual.
 
 ### Manual
 
