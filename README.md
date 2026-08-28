@@ -4,7 +4,7 @@
 
 [![Validate](https://github.com/eman/homeassistant-quilt-hp/actions/workflows/validate.yml/badge.svg)](https://github.com/eman/homeassistant-quilt-hp/actions/workflows/validate.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/eman/homeassistant-quilt-hp)](https://github.com/eman/homeassistant-quilt-hp/releases)
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/default)
 
 A Home Assistant custom component for [Quilt](https://www.quilt.com/) mini-split HVAC systems.
 
@@ -35,31 +35,18 @@ For protocol details, streaming behavior, and the full client feature set, see t
 
 ## Installation
 
-> **Note:** This integration is not yet in the HACS default store — it is
-> currently waiting on review by the HACS maintainers. Until then, searching for
-> it in HACS will fail with an error like *"Repository eman/homeassistant-quilt-hp
-> not found"*. Install it by adding this repository as a **custom repository**
-> as described below.
+### HACS (recommended)
 
-### HACS custom repository (recommended)
-
-Click the badge to add the repository to HACS in one step:
+Click the badge to open the integration in HACS:
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eman&repository=homeassistant-quilt-hp&category=integration)
 
-Or add it manually:
+Or find it yourself:
 
 1. In Home Assistant, open **HACS** from the sidebar.
-2. Click the **⋮** (three dots menu) in the top-right corner and select
-   **Custom repositories**.
-3. Enter the repository URL `https://github.com/eman/homeassistant-quilt-hp`,
-   choose type **Integration**, and click **Add**.
-4. Close the dialog, search HACS for **Quilt Heat Pump**, and open it.
-5. Click **Download** and confirm.
-6. Restart Home Assistant.
-
-Once the repository is accepted into the HACS default store, the custom
-repository entry is no longer needed and updates will continue to work as usual.
+2. Search for **Quilt** and open it.
+3. Click **Download** and confirm.
+4. Restart Home Assistant.
 
 ### Manual
 
