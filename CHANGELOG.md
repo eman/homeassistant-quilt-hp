@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [6.0.2] - 2026-08-28
+
 ### Added
 - hDPI brand assets: `icon@2x.png` (512x512), `logo@2x.png` and
   `dark_logo@2x.png` (1240x440, rendered from the source SVGs). Home
@@ -365,7 +367,8 @@
 - JWT token persistence via `HATokenStore` (HA `Storage` API)
 - Automatic token refresh with transparent re-login on expiry
 
-[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.1...HEAD
+[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.2...HEAD
+[6.0.2]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.1...v6.0.2
 [6.0.1]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.3...v6.0.0
 [0.5.3]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.2...v0.5.3
