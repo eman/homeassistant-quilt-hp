@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+- hDPI brand assets: `icon@2x.png` (512x512), `logo@2x.png` and
+  `dark_logo@2x.png` (1240x440, rendered from the source SVGs). Home
+  Assistant's brand loader pairs each `@2x` asset with its base image for
+  crisp rendering on hi-DPI dashboards.
+
+### Changed
+- `custom_components/quilt_hp/brand/icon.png` resized to 256x256, the size Home
+  Assistant's brand loader expects for the base icon; the original 512x512
+  asset is now shipped as `icon@2x.png`.
+
 ## [6.0.1] - 2026-07-20
 
 ### Changed
