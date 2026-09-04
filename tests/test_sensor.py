@@ -7,6 +7,7 @@ import math
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from homeassistant.helpers import device_registry as dr
 import pytest
 from quilt_hp.models.enums import ComfortSettingType, HVACState
 
@@ -336,6 +337,60 @@ def test_ctrl_remote_sensor_battery(hass) -> None:
     desc = next(d for d in CONTROLLER_REMOTE_SENSOR_DESCRIPTIONS if d.key == "battery")
     entity = QuiltControllerRemoteSensor(coordinator, "crs-001", desc)
     assert entity.native_value == 90.0
+
+
+# ── Parent device links ───────────────────────────────────────────────────────
+
+
+def _register_device(hass, entry, identifier: str) -> str:
+    """Register a Quilt device under *entry* and return its registry id."""
+    return (
+        dr.async_get(hass)
+        .async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={("quilt_hp", identifier)},
+        )
+        .id
+    )
+
+
+def test_odu_sensor_links_to_idu(hass, coordinator) -> None:
+    idu_device_id = _register_device(hass, coordinator.config_entry, "i_idu-001")
+    desc = next(d for d in ODU_SENSOR_DESCRIPTIONS if d.key == "ambient_temperature")
+    entity = QuiltODUSensor(coordinator, "odu-001", "idu-001", desc)
+    assert entity.device_info["via_device_id"] == idu_device_id
+
+
+def test_odu_sensor_no_link_when_idu_unregistered(hass, coordinator) -> None:
+    desc = next(d for d in ODU_SENSOR_DESCRIPTIONS if d.key == "ambient_temperature")
+    entity = QuiltODUSensor(coordinator, "odu-001", "idu-001", desc)
+    assert "via_device_id" not in entity.device_info
+
+
+def test_remote_sensor_links_to_idu(hass) -> None:
+    coordinator = make_mock_coordinator(
+        hass, make_snapshot(remote_sensors=[make_remote_sensor()])
+    )
+    idu_device_id = _register_device(hass, coordinator.config_entry, "i_idu-001")
+    desc = next(d for d in REMOTE_SENSOR_DESCRIPTIONS if d.key == "temperature")
+    entity = QuiltRemoteSensor(coordinator, "rs-001", desc)
+    assert entity.device_info["via_device_id"] == idu_device_id
+
+
+def test_ctrl_remote_sensor_links_to_controller(hass) -> None:
+    coordinator = make_mock_coordinator(
+        hass,
+        make_snapshot(
+            controllers=[make_controller()],
+            controller_remote_sensors=[make_ctrl_remote_sensor()],
+        ),
+    )
+    ctrl_device_id = _register_device(hass, coordinator.config_entry, "c_ctrl-001")
+    desc = next(
+        d for d in CONTROLLER_REMOTE_SENSOR_DESCRIPTIONS if d.key == "temperature"
+    )
+    entity = QuiltControllerRemoteSensor(coordinator, "crs-001", desc)
+    assert entity.device_info["via_device_id"] == ctrl_device_id
 
 
 def test_energy_sensor_returns_none_before_first_fetch(coordinator) -> None:

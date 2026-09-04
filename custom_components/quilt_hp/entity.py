@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 from typing import override
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -31,6 +32,29 @@ def _clean(value: str | None) -> str | None:
     if value is None or value in _SENTINEL_VALUES:
         return None
     return value
+
+
+def async_via_device_id(coordinator: QuiltCoordinator, identifier: str) -> str | None:
+    """Resolve a Quilt device *identifier* to its device registry id.
+
+    ``DeviceInfo`` links a device to its parent through ``via_device_id``, the
+    parent's registry id rather than its ``(DOMAIN, identifier)`` tuple, so the
+    parent has to be registered already. Callers pass the result straight into a
+    ``*_device_info`` builder, so an unregistered parent yields ``None`` and the
+    link is simply omitted — what the registry did on its own back when the link
+    was an identifier tuple. ``device_info`` is read immediately before the
+    device is created, so a parent registered by an earlier platform is present.
+
+    The lookup is scoped to our config entry because identifiers are only unique
+    within one.
+    """
+    entry = coordinator.config_entry
+    if entry is None:
+        return None
+    device = dr.async_get(coordinator.hass).async_get_device_by_identifier(
+        (DOMAIN, identifier), entry.entry_id
+    )
+    return device.id if device is not None else None
 
 
 def async_setup_dynamic_entities(
@@ -146,7 +170,12 @@ class QuiltControllerEntity(QuiltEntity):
         space = (
             self.coordinator.spaces_by_id.get(ctrl.space_id) if ctrl.space_id else None
         )
-        return controller_device_info(ctrl, idu, space)
+        via_id = (
+            async_via_device_id(self.coordinator, f"i_{idu.id}")
+            if idu is not None
+            else None
+        )
+        return controller_device_info(ctrl, via_id, space)
 
 
 def _is_serial_default_name(name: str, serial: str | None) -> bool:
@@ -194,12 +223,13 @@ def idu_device_info(idu: IndoorUnit, space: Space | None = None) -> DeviceInfo:
     return info
 
 
-def odu_device_info(odu: OutdoorUnit, idu: IndoorUnit | None = None) -> DeviceInfo:
+def odu_device_info(odu: OutdoorUnit, via_device_id: str | None = None) -> DeviceInfo:
     """Build a ``DeviceInfo`` for an outdoor unit.
 
     Uses the serial number when available to create a more identifiable device name.
-    The ODU is linked to the IDU in the same space so HA groups them
-    correctly in the UI.
+    *via_device_id* is the registry id of the IDU in the same space (see
+    ``async_via_device_id``), which links the two so HA groups them correctly in
+    the UI.
     """
     # Use serial number for better identification if available
     serial = _clean(odu.serial_number)
@@ -215,13 +245,13 @@ def odu_device_info(odu: OutdoorUnit, idu: IndoorUnit | None = None) -> DeviceIn
         info["serial_number"] = serial
     if _clean(odu.firmware_version):
         info["sw_version"] = odu.firmware_version
-    if idu is not None:
-        info["via_device"] = (DOMAIN, f"i_{idu.id}")
+    if via_device_id is not None:
+        info["via_device_id"] = via_device_id
     return info
 
 
 def controller_device_info(
-    ctrl: Controller, idu: IndoorUnit | None = None, space: Space | None = None
+    ctrl: Controller, via_device_id: str | None = None, space: Space | None = None
 ) -> DeviceInfo:
     """Build a ``DeviceInfo`` for a Quilt Controller (Dial).
 
@@ -229,8 +259,9 @@ def controller_device_info(
     user-set name in the Quilt app; Quilt's serial-based default ("Dial
     {serial}") is treated as no name since the serial is on the device card.
 
-    The Dial is a physically separate device from the IDU. ``via_device`` links
-    it to the IDU in the same space so HA groups them correctly in the UI.
+    The Dial is a physically separate device from the IDU. *via_device_id* is
+    the registry id of the IDU in the same space (see ``async_via_device_id``),
+    which links the two so HA groups them correctly in the UI.
     """
     configured = ctrl.name
     if configured and not _is_serial_default_name(configured, ctrl.serial_number):
@@ -252,17 +283,19 @@ def controller_device_info(
         info["serial_number"] = ctrl.serial_number
     if _clean(ctrl.firmware_version):
         info["sw_version"] = ctrl.firmware_version
-    if idu is not None:
-        info["via_device"] = (DOMAIN, f"i_{idu.id}")
+    if via_device_id is not None:
+        info["via_device_id"] = via_device_id
     return info
 
 
 def remote_sensor_device_info(
-    rs: RemoteSensor, idu: IndoorUnit | None = None
+    rs: RemoteSensor, via_device_id: str | None = None
 ) -> DeviceInfo:
     """Build a ``DeviceInfo`` for a Quilt remote sensor (IDU-paired wireless sensor).
 
-    Uses a unique identifier to distinguish multiple sensors.
+    Uses a unique identifier to distinguish multiple sensors. *via_device_id* is
+    the registry id of the IDU the sensor is paired with (see
+    ``async_via_device_id``).
     """
     name = f"Remote Sensor {rs.id[:8]}"
     info = DeviceInfo(
@@ -271,17 +304,21 @@ def remote_sensor_device_info(
         manufacturer=_MANUFACTURER,
         model="Remote Sensor",
     )
-    if idu is not None:
-        info["via_device"] = (DOMAIN, f"i_{idu.id}")
+    if via_device_id is not None:
+        info["via_device_id"] = via_device_id
     return info
 
 
 def ctrl_remote_sensor_device_info(
-    crs: ControllerRemoteSensor, ctrl: Controller | None = None
+    crs: ControllerRemoteSensor,
+    ctrl: Controller | None = None,
+    via_device_id: str | None = None,
 ) -> DeviceInfo:
     """Build a ``DeviceInfo`` for a Quilt controller remote sensor (Dial-paired).
 
     Includes controller context when available for better identification.
+    *via_device_id* is the registry id of the Dial the sensor is paired with
+    (see ``async_via_device_id``).
     """
     if ctrl and ctrl.name:
         name = f"{ctrl.name} Zone Sensor"
@@ -294,8 +331,8 @@ def ctrl_remote_sensor_device_info(
         manufacturer=_MANUFACTURER,
         model="Zone Sensor",
     )
-    if ctrl is not None:
-        info["via_device"] = (DOMAIN, f"c_{ctrl.id}")
+    if via_device_id is not None:
+        info["via_device_id"] = via_device_id
     return info
 
 

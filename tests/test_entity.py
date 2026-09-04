@@ -5,12 +5,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
+from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 from custom_components.quilt_hp.entity import (
     QuiltControllerEntity,
     QuiltEntity,
     QuiltIDUEntity,
     _clean,
     async_setup_dynamic_entities,
+    async_via_device_id,
     controller_device_info,
     ctrl_remote_sensor_device_info,
     idu_device_info,
@@ -161,16 +165,15 @@ async def test_odu_device_info(hass) -> None:
     odu.model_sku = "QHP-36K"
     odu.serial_number = "SN123456"
     odu.firmware_version = "1.2.3"
-    idu = make_idu()
 
-    info = odu_device_info(odu, idu)
+    info = odu_device_info(odu, "parent-device-id")
 
     assert info["manufacturer"] == "Quilt"
     assert "QHP-36K" in info["model"]
     assert info["serial_number"] == "SN123456"
     assert info["sw_version"] == "1.2.3"
     assert ("quilt_hp", f"u_{odu.id}") in info["identifiers"]
-    assert info["via_device"] == ("quilt_hp", f"i_{idu.id}")
+    assert info["via_device_id"] == "parent-device-id"
 
 
 async def test_odu_device_info_no_idu(hass) -> None:
@@ -179,7 +182,7 @@ async def test_odu_device_info_no_idu(hass) -> None:
 
     info = odu_device_info(odu, None)
 
-    assert "via_device" not in info
+    assert "via_device_id" not in info
 
 
 async def test_controller_device_info(hass) -> None:
@@ -189,9 +192,8 @@ async def test_controller_device_info(hass) -> None:
     ctrl.model_sku = "DIAL-V2"
     ctrl.serial_number = "CTRL-123"
     ctrl.firmware_version = "2.0.1"
-    idu = make_idu()
 
-    info = controller_device_info(ctrl, idu)
+    info = controller_device_info(ctrl, "parent-device-id")
 
     assert info["name"] == "Kitchen Dial"
     assert info["manufacturer"] == "Quilt"
@@ -199,7 +201,7 @@ async def test_controller_device_info(hass) -> None:
     assert info["serial_number"] == "CTRL-123"
     assert info["sw_version"] == "2.0.1"
     assert ("quilt_hp", f"c_{ctrl.id}") in info["identifiers"]
-    assert info["via_device"] == ("quilt_hp", f"i_{idu.id}")
+    assert info["via_device_id"] == "parent-device-id"
 
 
 async def test_controller_device_info_no_idu(hass) -> None:
@@ -208,7 +210,7 @@ async def test_controller_device_info_no_idu(hass) -> None:
 
     info = controller_device_info(ctrl, None)
 
-    assert "via_device" not in info
+    assert "via_device_id" not in info
 
 
 async def test_controller_device_info_prefers_room_over_serial_default(hass) -> None:
@@ -226,14 +228,13 @@ async def test_controller_device_info_prefers_room_over_serial_default(hass) -> 
 async def test_remote_sensor_device_info(hass) -> None:
     """Test remote sensor device info."""
     rs = make_remote_sensor()
-    idu = make_idu()
 
-    info = remote_sensor_device_info(rs, idu)
+    info = remote_sensor_device_info(rs, "parent-device-id")
 
     assert info["manufacturer"] == "Quilt"
     assert info["model"] == "Remote Sensor"
     assert ("quilt_hp", f"rs_{rs.id}") in info["identifiers"]
-    assert info["via_device"] == ("quilt_hp", f"i_{idu.id}")
+    assert info["via_device_id"] == "parent-device-id"
 
 
 async def test_controller_remote_sensor_device_info(hass) -> None:
@@ -241,12 +242,12 @@ async def test_controller_remote_sensor_device_info(hass) -> None:
     crs = make_ctrl_remote_sensor()
     ctrl = make_controller()
 
-    info = ctrl_remote_sensor_device_info(crs, ctrl)
+    info = ctrl_remote_sensor_device_info(crs, ctrl, "parent-device-id")
 
     assert info["manufacturer"] == "Quilt"
     assert "Zone Sensor" in info["model"]
     assert ("quilt_hp", f"crs_{crs.id}") in info["identifiers"]
-    assert info["via_device"] == ("quilt_hp", f"c_{ctrl.id}")
+    assert info["via_device_id"] == "parent-device-id"
 
 
 async def test_controller_remote_sensor_device_info_with_name(hass) -> None:
@@ -324,13 +325,68 @@ async def test_controller_entity_available_without_timestamp(hass) -> None:
     assert entity.available is True
 
 
+def _register_device(hass, entry, identifier: str) -> str:
+    """Register a Quilt device under *entry* and return its registry id."""
+    return (
+        dr.async_get(hass)
+        .async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={("quilt_hp", identifier)},
+        )
+        .id
+    )
+
+
 async def test_controller_entity_device_info(hass) -> None:
+    """The Dial links to the IDU device serving the same space."""
     ctrl = make_controller()
     coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    idu_device_id = _register_device(hass, coordinator.config_entry, "i_idu-001")
     entity = QuiltControllerEntity(coordinator, "ctrl-001")
     info = entity.device_info
     assert ("quilt_hp", "c_ctrl-001") in info["identifiers"]
-    assert info["via_device"] == ("quilt_hp", "i_idu-001")
+    assert info["via_device_id"] == idu_device_id
+
+
+async def test_controller_entity_device_info_unregistered_idu(hass) -> None:
+    """No link when the IDU device is not in the registry yet.
+
+    Passing a via_device_id the registry does not know raises, so the link has
+    to be dropped rather than guessed.
+    """
+    ctrl = make_controller()
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    entity = QuiltControllerEntity(coordinator, "ctrl-001")
+    assert "via_device_id" not in entity.device_info
+
+
+# ── async_via_device_id ───────────────────────────────────────────────────────
+
+
+async def test_via_device_id_resolves_registered_device(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    device_id = _register_device(hass, coordinator.config_entry, "i_idu-001")
+    assert async_via_device_id(coordinator, "i_idu-001") == device_id
+
+
+async def test_via_device_id_unknown_identifier(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    assert async_via_device_id(coordinator, "i_nope") is None
+
+
+async def test_via_device_id_ignores_other_config_entry(hass) -> None:
+    """Identifiers are only unique within a config entry, so scope the lookup."""
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    other = MockConfigEntry(domain="quilt_hp", title="Other Quilt")
+    other.add_to_hass(hass)
+    _register_device(hass, other, "i_idu-001")
+    assert async_via_device_id(coordinator, "i_idu-001") is None
+
+
+async def test_via_device_id_without_config_entry(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    coordinator.config_entry = None
+    assert async_via_device_id(coordinator, "i_idu-001") is None
 
 
 # ── async_setup_dynamic_entities ──────────────────────────────────────────────

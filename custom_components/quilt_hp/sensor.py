@@ -59,6 +59,7 @@ from .entity import (
     QuiltEntity,
     QuiltIDUEntity,
     async_setup_dynamic_entities,
+    async_via_device_id,
     ctrl_remote_sensor_device_info,
     odu_device_info,
     remote_sensor_device_info,
@@ -900,7 +901,12 @@ class QuiltODUSensor(QuiltEntity, SensorEntity):
     @override
     def device_info(self) -> DeviceInfo:
         idu = self.coordinator.idu_by_id.get(self._idu_id)
-        return odu_device_info(self._odu, idu)
+        via_id = (
+            async_via_device_id(self.coordinator, f"i_{idu.id}")
+            if idu is not None
+            else None
+        )
+        return odu_device_info(self._odu, via_id)
 
     @property
     @override
@@ -1008,7 +1014,12 @@ class QuiltRemoteSensor(QuiltEntity, SensorEntity):
     def device_info(self) -> DeviceInfo:
         rs = self._rs
         idu = self.coordinator.idu_by_id.get(rs.indoor_unit_id)
-        return remote_sensor_device_info(rs, idu)
+        via_id = (
+            async_via_device_id(self.coordinator, f"i_{idu.id}")
+            if idu is not None
+            else None
+        )
+        return remote_sensor_device_info(rs, via_id)
 
     @property
     @override
@@ -1050,7 +1061,12 @@ class QuiltControllerRemoteSensor(QuiltEntity, SensorEntity):
     def device_info(self) -> DeviceInfo:
         crs = self._crs
         ctrl = self.coordinator.ctrl_by_id.get(crs.controller_id)
-        return ctrl_remote_sensor_device_info(crs, ctrl)
+        via_id = (
+            async_via_device_id(self.coordinator, f"c_{ctrl.id}")
+            if ctrl is not None
+            else None
+        )
+        return ctrl_remote_sensor_device_info(crs, ctrl, via_id)
 
     @property
     @override
