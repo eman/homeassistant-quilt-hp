@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from quilt_hp.models.comfort import ComfortSetting
@@ -384,6 +385,24 @@ def _mock_config_entry(hass: HomeAssistant) -> MockConfigEntry:
     entry = MockConfigEntry(domain=DOMAIN, entry_id=MOCK_ENTRY_ID, title="Quilt")
     entry.add_to_hass(hass)
     return entry
+
+
+def register_device(
+    hass: HomeAssistant, entry: MockConfigEntry, identifier: str
+) -> str:
+    """Register a Quilt device under *entry* and return its registry id.
+
+    Parent links resolve through the device registry, so tests that assert on
+    ``via_device_id`` have to put the parent device there first.
+    """
+    return (
+        dr.async_get(hass)
+        .async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, identifier)},
+        )
+        .id
+    )
 
 
 def make_entry_mock(hass: HomeAssistant | None = None) -> MagicMock:

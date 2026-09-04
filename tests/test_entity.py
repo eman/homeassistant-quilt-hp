@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.quilt_hp.entity import (
@@ -33,6 +32,7 @@ from .conftest import (
     make_remote_sensor,
     make_snapshot,
     make_space,
+    register_device,
 )
 
 
@@ -325,23 +325,11 @@ async def test_controller_entity_available_without_timestamp(hass) -> None:
     assert entity.available is True
 
 
-def _register_device(hass, entry, identifier: str) -> str:
-    """Register a Quilt device under *entry* and return its registry id."""
-    return (
-        dr.async_get(hass)
-        .async_get_or_create(
-            config_entry_id=entry.entry_id,
-            identifiers={("quilt_hp", identifier)},
-        )
-        .id
-    )
-
-
 async def test_controller_entity_device_info(hass) -> None:
     """The Dial links to the IDU device serving the same space."""
     ctrl = make_controller()
     coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
-    idu_device_id = _register_device(hass, coordinator.config_entry, "i_idu-001")
+    idu_device_id = register_device(hass, coordinator.config_entry, "i_idu-001")
     entity = QuiltControllerEntity(coordinator, "ctrl-001")
     info = entity.device_info
     assert ("quilt_hp", "c_ctrl-001") in info["identifiers"]
@@ -365,7 +353,7 @@ async def test_controller_entity_device_info_unregistered_idu(hass) -> None:
 
 async def test_via_device_id_resolves_registered_device(hass) -> None:
     coordinator = make_mock_coordinator(hass, make_snapshot())
-    device_id = _register_device(hass, coordinator.config_entry, "i_idu-001")
+    device_id = register_device(hass, coordinator.config_entry, "i_idu-001")
     assert async_via_device_id(coordinator, "i_idu-001") == device_id
 
 
@@ -379,7 +367,7 @@ async def test_via_device_id_ignores_other_config_entry(hass) -> None:
     coordinator = make_mock_coordinator(hass, make_snapshot())
     other = MockConfigEntry(domain="quilt_hp", title="Other Quilt")
     other.add_to_hass(hass)
-    _register_device(hass, other, "i_idu-001")
+    register_device(hass, other, "i_idu-001")
     assert async_via_device_id(coordinator, "i_idu-001") is None
 
 
