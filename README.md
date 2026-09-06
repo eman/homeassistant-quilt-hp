@@ -30,7 +30,7 @@ For protocol details, streaming behavior, and the full client feature set, see t
 ## Prerequisites
 
 - A [Quilt](https://www.quilt.com/) account with at least one configured system
-- Home Assistant 2026.3 or newer
+- Home Assistant 2026.8 or newer
 - Python 3.14.2 or newer (managed automatically by HA)
 
 ## Installation

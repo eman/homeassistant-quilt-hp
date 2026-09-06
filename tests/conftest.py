@@ -6,7 +6,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 from quilt_hp.models.comfort import ComfortSetting
 from quilt_hp.models.controller import Controller
 from quilt_hp.models.enums import (
@@ -32,6 +34,12 @@ from quilt_hp.models.qsm import QsmSensors, QuiltSmartModule
 from quilt_hp.models.sensor import ControllerRemoteSensor, RemoteSensor
 from quilt_hp.models.space import Space, SpaceControls, SpaceSettings, SpaceState
 from quilt_hp.models.system import Location
+
+from custom_components.quilt_hp.const import DOMAIN
+
+# Fixed entry id so tests can register devices against the mock coordinator's
+# config entry (device identifiers are only unique within one config entry).
+MOCK_ENTRY_ID = "quilt-test-entry"
 
 # ── Model helpers ─────────────────────────────────────────────────────────────
 
@@ -322,6 +330,7 @@ def make_mock_coordinator(hass: HomeAssistant, snapshot=None) -> MagicMock:
 
     coordinator = MagicMock(spec=QuiltCoordinator)
     coordinator.hass = hass
+    coordinator.config_entry = _mock_config_entry(hass)
     data = snapshot or make_snapshot()
     coordinator.data = data
     coordinator.spaces_by_id = {s.id: s for s in data.spaces}
@@ -366,6 +375,34 @@ def make_mock_coordinator(hass: HomeAssistant, snapshot=None) -> MagicMock:
 
     coordinator.async_add_listener = MagicMock(side_effect=_add_listener)
     return coordinator
+
+
+def _mock_config_entry(hass: HomeAssistant) -> MockConfigEntry:
+    """Return (registering once per hass) the config entry mock coordinators own."""
+    existing = hass.config_entries.async_get_entry(MOCK_ENTRY_ID)
+    if existing is not None:
+        return existing
+    entry = MockConfigEntry(domain=DOMAIN, entry_id=MOCK_ENTRY_ID, title="Quilt")
+    entry.add_to_hass(hass)
+    return entry
+
+
+def register_device(
+    hass: HomeAssistant, entry: MockConfigEntry, identifier: str
+) -> str:
+    """Register a Quilt device under *entry* and return its registry id.
+
+    Parent links resolve through the device registry, so tests that assert on
+    ``via_device_id`` have to put the parent device there first.
+    """
+    return (
+        dr.async_get(hass)
+        .async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, identifier)},
+        )
+        .id
+    )
 
 
 def make_entry_mock(hass: HomeAssistant | None = None) -> MagicMock:

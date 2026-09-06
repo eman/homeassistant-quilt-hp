@@ -1,4 +1,4 @@
-homeassistant>= 2026.3.0
+homeassistant>= 2026.8.0
 quilt-hp-python>=0.5.7
 pytest>=7.4
 pytest-asyncio>=0.23

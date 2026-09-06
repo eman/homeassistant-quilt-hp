@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Changed
+- **Minimum Home Assistant version is now 2026.8.** Parent/child device links
+  (outdoor unit → indoor unit, Dial → indoor unit, remote sensors → their
+  indoor unit or Dial) now use `DeviceInfo.via_device_id` instead of the
+  `via_device` identifier tuple, which Home Assistant 2026.9 dropped from
+  `DeviceInfo` (it keeps working at runtime until 2027.8, but no longer type
+  checks). `via_device_id` is the parent's device registry id, so the
+  `*_device_info` builders in `entity.py` now take a resolved id, looked up
+  through the new `async_via_device_id` helper. The lookup is scoped to our
+  config entry — device identifiers are only unique within one — and a parent
+  that is not registered yet simply yields no link, matching what the registry
+  did with an unresolvable identifier tuple. Device grouping in the UI is
+  unchanged.
+
 ## [6.0.2] - 2026-08-28
 
 ### Added
