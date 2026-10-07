@@ -202,6 +202,31 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
             self.async_set_updated_data(self.data)
         return result
 
+    async def async_set_controller(
+        self, controller: Controller, **kwargs: Any
+    ) -> Controller:
+        """Set Dial (controller) fields with one transparent auth-refresh retry.
+
+        The returned Controller is merged into the snapshot and pushed to
+        entities immediately, like ``async_set_indoor_unit``. The server's
+        reply carries no hardware fields; ``apply_controller`` keeps them.
+        """
+        result = await self._write(
+            lambda: self._client.set_controller(controller, **kwargs)
+        )
+        if self.data:
+            _ = self.data.apply_controller(result)
+            self.async_set_updated_data(self.data)
+        return result
+
+    async def async_start_self_test(self, indoor_unit: IndoorUnit) -> None:
+        """Start an indoor unit's diagnostic self-test."""
+        await self._write(lambda: self._client.start_self_test(indoor_unit))
+
+    async def async_cancel_self_test(self, indoor_unit: IndoorUnit) -> None:
+        """Cancel an indoor unit's running diagnostic self-test."""
+        await self._write(lambda: self._client.cancel_self_test(indoor_unit))
+
     async def async_set_schedule_execution(self, *, paused: bool) -> None:
         """Pause or resume all schedules with one transparent auth-refresh retry."""
         await self._write(lambda: self._client.set_schedule_execution(paused=paused))
@@ -287,6 +312,7 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         _ = stream.on_controller_remote_sensor_update(
             self._make_stream_handler(SystemSnapshot.apply_controller_remote_sensor)
         )
+        _ = stream.on_delete(self._on_stream_delete)
         _ = stream.on_error(self._on_stream_error)
         _ = stream.on_connected(self._on_stream_connected)
 
@@ -307,6 +333,18 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
             self._on_stream_push()
 
         return _handler
+
+    def _on_stream_delete(self, kind: str, entity_id: str) -> None:
+        """Drop an object the server deleted from the snapshot.
+
+        Deletions never reach the ``on_*_update`` callbacks. ``remove`` also
+        tombstones the object so an update already in flight can't re-add
+        it; its entities go unavailable, and its device is cleaned up from
+        the registry on the next reload.
+        """
+        if self.data and self.data.remove(kind, entity_id):
+            _LOGGER.debug("Quilt %s %s was deleted", kind, entity_id)
+            self.async_set_updated_data(self.data)
 
     def _on_stream_error(self, err: object) -> None:
         """Handle permanent stream death.

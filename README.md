@@ -17,13 +17,15 @@ For protocol details, streaming behavior, and the full client feature set, see t
 ## Features
 
 - **Climate entities** — control HVAC mode and setpoints for each Quilt space (room)
-- **Sensor entities** — ambient temperature, humidity, inlet/outlet temps,
-  presence level, COP, HVAC power, compressor data, and per-space energy
+- **Sensor entities** — ambient temperature, humidity, dew point, inlet/outlet temps,
+  presence level, COP, HVAC power, compressor data, per-space energy, and Dial
+  humidity / illuminance
 - **Light entities** — toggle and dim indoor unit LED, set RGBW color and animation effect
 - **Select entities** — fan speed (Auto / Quiet / Low / Medium / High / Blast), louver mode
   (Closed / Sweep / Fixed / Auto), and fixed louver angle
-- **Binary sensor entities** — realtime presence, debounced occupancy (auto-away), raw radar channels, and connectivity status per IDU
-- **Switch entities** — pause or resume all Quilt schedules for a location
+- **Binary sensor entities** — realtime presence, debounced occupancy (auto-away), raw radar channels, self-test status, and connectivity per IDU; the Dial's own radar presence and display state
+- **Switch entities** — pause or resume all Quilt schedules for a location; choose whether a room is controlled to its Dial's temperature
+- **Button entities** — start or cancel an indoor unit's diagnostic self-test
 - **Real-time updates** — powered by Quilt's bidirectional gRPC stream with auto-reconnect
 - **Polling fallback** — configurable interval fetch if the stream is unavailable
 
@@ -117,7 +119,9 @@ If you see a repair notification about stream degradation:
 - **Action:** Check your internet connection; no manual intervention required
 
 ### Entities Show as "Unavailable"
-- **Device offline:** Verify your Quilt indoor unit has power and WiFi connection
+- **Device offline:** Verify your Quilt indoor unit has power and WiFi connection.
+  A Dial counts as offline (and its entities unavailable) when it hasn't reported
+  in 5 minutes — the same rule the Quilt app uses
 - **Recent setup:** Allow 1-2 minutes after initial setup for devices to come online
 - **Cloud connection:** Check that the Quilt app works on your phone
 - **Reload integration:** Try reloading from **Devices & Services**
@@ -189,6 +193,7 @@ the speed) plus explicit **Quiet / Low / Medium / High / Blast** speeds. Quilt's
 | Louver angle | `select` | Enabled |
 | Onboard temperature | `sensor` | Enabled |
 | Humidity | `sensor` | Enabled |
+| Dew point | `sensor` | Enabled |
 | Presence | `binary_sensor` | Enabled |
 | Occupancy (auto-away) | `binary_sensor` | Enabled |
 | Inlet temperature | `sensor` | Disabled |
@@ -197,13 +202,35 @@ the speed) plus explicit **Quiet / Low / Medium / High / Blast** speeds. Quilt's
 | HVAC capacity | `sensor` | Disabled |
 | HVAC power | `sensor` | Disabled |
 | Coefficient of performance | `sensor` | Disabled |
+| Outdoor unit share | `sensor` | Disabled |
 | Calibrated temperature | `sensor` | Disabled |
 | Radar channel 0 | `binary_sensor` | Disabled |
 | Radar channel 1 | `binary_sensor` | Disabled |
 | Radar phase signal | `sensor` | Disabled |
 | Radar target signal | `sensor` | Disabled |
 | Illuminance | `sensor` | Disabled |
+| Self-test | `binary_sensor` | Enabled (diagnostic) |
+| Start self-test | `button` | Disabled |
+| Cancel self-test | `button` | Disabled |
 | Online | `binary_sensor` | Disabled |
+
+**Dew point** is the dew point at the unit's air inlet, computed by the unit; it is
+unknown while the unit flags its reading invalid. **Outdoor unit share** is the
+fraction of the outdoor unit attributed to this indoor unit (e.g. 50 % each for two
+indoor units on one outdoor unit) — useful for apportioning outdoor-unit energy per
+room.
+
+#### Self-test
+
+**Start self-test** runs the indoor unit's diagnostic self-test — the Quilt app's
+"Run diagnostic test". It takes up to 30 minutes (about 20 in practice, cooling then
+heating), the room can't be heated or cooled meanwhile, and the results go to Quilt
+(and your installer, if any), not to Home Assistant. **Cancel self-test** stops it
+(the library sends the same request the Quilt app does, but cancelling hasn't been
+verified against a live system yet).
+Both buttons are disabled by default so the test can't be started by accident;
+enable them from the device page. The **Self-test** binary sensor is on while the
+unit runs any test (self-test, health check or commissioning).
 
 #### Presence vs occupancy
 
@@ -258,8 +285,28 @@ interchangeable:
 | Entity | Platform | Default |
 |---|---|---|
 | Temperature | `sensor` | Enabled |
+| Humidity | `sensor` | Enabled |
+| Illuminance | `sensor` | Enabled |
+| Presence | `binary_sensor` | Enabled |
+| Use Dial temperature | `switch` | Enabled (configuration) |
+| Display | `binary_sensor` | Disabled |
+| Power | `sensor` | Disabled |
+| Screen brightness | `sensor` | Disabled |
+| Encoder temperature | `sensor` | Disabled |
+| SoC temperature | `sensor` | Disabled |
+| Main board temperature | `sensor` | Disabled |
+| Power board temperature | `sensor` | Disabled |
+| Calibrated ambient | `sensor` | Disabled |
 | Online | `binary_sensor` | Disabled |
 | Wi-Fi signal | `sensor` | Disabled |
+| Wi-Fi frequency | `sensor` | Disabled |
+| Local comms health | `sensor` | Disabled |
+
+- **Use Dial temperature** is the Quilt app's "Temperature sensor" setting: on, the
+  room is controlled to the Dial's reading; off, to the indoor unit's own sensor.
+- **Presence** comes from the Dial's own radar, separate from the indoor unit's.
+- **Humidity** is unavailable on Dials without a humidity sensor.
+- **Display** is on whenever the screen is awake (glance, active or in use).
 
 ## Troubleshooting
 

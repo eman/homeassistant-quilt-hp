@@ -106,6 +106,14 @@ async def test_idu_device_info_with_name(hass) -> None:
     assert ("quilt_hp", f"i_{idu.id}") in info["identifiers"]
 
 
+async def test_idu_device_info_prefers_unit_serial(hass) -> None:
+    """The unit's own serial (QN1-…) wins over its Smart Module's (QS1-…)."""
+    idu = make_idu(serial_number="QS1-IDU0001")
+    idu.unit_serial_number = "QN1-IDU0001"
+    info = idu_device_info(idu, make_space())
+    assert info["serial_number"] == "QN1-IDU0001"
+
+
 async def test_idu_device_info_omits_missing_hardware(hass) -> None:
     """Serial/firmware are omitted when the hardware map had no data."""
     idu = make_idu(serial_number=None, firmware_version=None, model_sku="N/A")
@@ -145,6 +153,17 @@ async def test_idu_device_info_prefers_room_over_serial_default(hass) -> None:
     space = make_space(name="Family Room")
 
     info = idu_device_info(idu, space)
+
+    assert info["name"] == "Family Room Indoor Unit"
+
+
+async def test_idu_device_info_detects_unit_serial_default(hass) -> None:
+    """A default name built from the unit's own serial is also replaced."""
+    idu = make_idu(serial_number="QS1-ABC123")
+    idu.unit_serial_number = "QN1-DEF456"
+    idu.settings.name = "Indoor Unit QN1-DEF456"
+
+    info = idu_device_info(idu, make_space(name="Family Room"))
 
     assert info["name"] == "Family Room Indoor Unit"
 
@@ -310,19 +329,18 @@ async def test_controller_entity_availability(hass) -> None:
 
 async def test_controller_entity_unavailable_when_offline(hass) -> None:
     ctrl = make_controller()
-    # A stale timestamp is positive evidence of being offline (None fails open).
     ctrl.state_updated_at = datetime.now(tz=UTC) - timedelta(hours=1)
     coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
     entity = QuiltControllerEntity(coordinator, "ctrl-001")
     assert entity.available is False
 
 
-async def test_controller_entity_available_without_timestamp(hass) -> None:
-    """No state timestamp → assume online (fail-open, server omits the field)."""
+async def test_controller_entity_unavailable_without_timestamp(hass) -> None:
+    """No state timestamp → offline: the server sends an offline Dial with no state."""
     ctrl = make_controller(online=False)  # state_updated_at=None
     coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
     entity = QuiltControllerEntity(coordinator, "ctrl-001")
-    assert entity.available is True
+    assert entity.available is False
 
 
 async def test_controller_entity_device_info(hass) -> None:

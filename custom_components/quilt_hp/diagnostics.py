@@ -43,6 +43,10 @@ async def async_get_config_entry_diagnostics(
                 "is_online": idu.is_online,
                 "fan_speed": str(idu.controls.fan_speed),
                 "has_qsm": idu.qsm_id is not None,
+                "test_mode": idu.effective_test_mode.name,
+                "active_conditions": (
+                    idu.conditions.active if idu.conditions is not None else []
+                ),
             }
         )
 
@@ -62,6 +66,9 @@ async def async_get_config_entry_diagnostics(
                 "id": ctrl.id[:8] + "…",
                 "is_online": ctrl.is_online,
                 "firmware_version": ctrl.firmware_version,
+                "uses_dial_temperature": ctrl.uses_dial_temperature,
+                "view_state": ctrl.view_state.name,
+                "has_humidity_sensor": ctrl.humidity_percent is not None,
             }
         )
 
@@ -75,6 +82,9 @@ async def async_get_config_entry_diagnostics(
             "last_update_success": coordinator.last_update_success,
             "stream_death_count": coordinator.stream_death_count,
         },
+        "configuration_changed_at": (
+            version_at.isoformat() if (version_at := data.version_at) else None
+        ),
         "spaces": spaces_info,
         "indoor_units": idu_info,
         "outdoor_units": odu_info,

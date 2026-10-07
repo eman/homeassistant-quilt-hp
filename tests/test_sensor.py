@@ -590,3 +590,103 @@ def test_idu_capacity_reported_when_running(hass) -> None:
     desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == "hvac_capacity")
     entity = QuiltIDUSensor(coordinator, "idu-001", desc)
     assert entity.native_value == 2800.0
+
+
+# ── quilt-hp-python 0.6.0 telemetry ───────────────────────────────────────────
+
+
+def _idu_sensor(coordinator, key: str) -> QuiltIDUSensor:
+    desc = next(d for d in IDU_SENSOR_DESCRIPTIONS if d.key == key)
+    return QuiltIDUSensor(coordinator, "idu-001", desc)
+
+
+def _ctrl_sensor(coordinator, key: str) -> QuiltControllerSensor:
+    desc = next(d for d in CONTROLLER_SENSOR_DESCRIPTIONS if d.key == key)
+    return QuiltControllerSensor(coordinator, "ctrl-001", desc)
+
+
+def test_idu_dew_point(hass) -> None:
+    from quilt_hp.models.indoor_unit import IndoorUnitClimate
+
+    idu = make_idu()
+    idu.climate = IndoorUnitClimate(
+        is_valid=True, inlet_dew_point_c=15.9, calculated_ambient_temperature_c=25.9
+    )
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[idu]))
+    assert _idu_sensor(coordinator, "dew_point").native_value == 15.9
+
+    idu.climate.is_valid = False
+    assert _idu_sensor(coordinator, "dew_point").native_value is None
+
+
+def test_idu_dew_point_none_without_climate(hass) -> None:
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    assert _idu_sensor(coordinator, "dew_point").native_value is None
+
+
+def test_idu_outdoor_unit_share(hass) -> None:
+    from quilt_hp.models.enums import HVACMode
+    from quilt_hp.models.indoor_unit import IndoorUnitPerformanceMetrics
+
+    idu = make_idu()
+    idu.performance_metrics = IndoorUnitPerformanceMetrics(
+        capacity_w=0.0,
+        coefficient_of_performance=0.0,
+        hvac_power_w=0.0,
+        led_power_w=0.0,
+        hvac_mode=HVACMode.HEAT,
+        hvac_state=HVACState.HEAT,
+        odu_usage_fraction=0.5,
+    )
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[idu]))
+    assert _idu_sensor(coordinator, "outdoor_unit_share").native_value == 50.0
+
+    # 0.0 is the proto3 default: "not reported", not a 0 % share.
+    idu.performance_metrics.odu_usage_fraction = 0.0
+    assert _idu_sensor(coordinator, "outdoor_unit_share").native_value is None
+
+
+def test_controller_display_telemetry(hass) -> None:
+    ctrl = make_controller()
+    ctrl.ambient_light_lux = 123.456
+    ctrl.humidity_percent = 47.26
+    ctrl.power_w = 0.987
+    ctrl.screen_brightness = 0.42
+    ctrl.main_board_temperature_c = 31.0
+    ctrl.power_board_temperature_c = 33.5
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+
+    assert _ctrl_sensor(coordinator, "illuminance").native_value == 123.5
+    assert _ctrl_sensor(coordinator, "humidity").native_value == 47.3
+    assert _ctrl_sensor(coordinator, "power").native_value == 0.99
+    assert _ctrl_sensor(coordinator, "screen_brightness").native_value == 42
+    assert _ctrl_sensor(coordinator, "main_board_temperature").native_value == 31.0
+    assert _ctrl_sensor(coordinator, "power_board_temperature").native_value == 33.5
+
+
+def test_controller_humidity_unavailable_without_sensor(hass) -> None:
+    """Dials without the humidity sensor report None: unavailable, not unknown."""
+    ctrl = make_controller()
+    ctrl.humidity_percent = None
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    sensor = _ctrl_sensor(coordinator, "humidity")
+    assert sensor.available is False
+
+
+def test_controller_screen_brightness_none_without_state(hass) -> None:
+    ctrl = make_controller()  # screen_brightness defaults to None
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    assert _ctrl_sensor(coordinator, "screen_brightness").native_value is None
+
+
+def test_controller_pcb_sensors_keep_unique_ids(hass) -> None:
+    """Renamed to encoder/SoC, but the unique IDs carry history over."""
+    coordinator = make_mock_coordinator(
+        hass, make_snapshot(controllers=[make_controller()])
+    )
+    encoder = _ctrl_sensor(coordinator, "pcb_temperature_a")
+    soc = _ctrl_sensor(coordinator, "pcb_temperature_b")
+    assert encoder.unique_id == "quilt_ctrl_ctrl-001_pcb_temperature_a"
+    assert encoder.translation_key == "encoder_temperature"
+    assert soc.unique_id == "quilt_ctrl_ctrl-001_pcb_temperature_b"
+    assert soc.translation_key == "soc_temperature"

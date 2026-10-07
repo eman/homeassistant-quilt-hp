@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
+from homeassistant.const import EntityCategory
 import pytest
+from quilt_hp.models.enums import RemoteSensorControlMode
 
 from custom_components.quilt_hp.const import DOMAIN
-from custom_components.quilt_hp.switch import QuiltScheduleSwitch
+from custom_components.quilt_hp.switch import (
+    QuiltDialTemperatureSwitch,
+    QuiltScheduleSwitch,
+    async_setup_entry,
+)
 
 from .conftest import (
+    make_controller,
     make_location,
     make_mock_coordinator,
     make_snapshot,
@@ -69,3 +78,69 @@ def test_schedule_switch_unavailable_when_location_removed(coordinator) -> None:
     assert entity.available
     coordinator.location_by_id = {}
     assert not entity.available
+
+
+# ── Dial temperature sensor switch ────────────────────────────────────────────
+
+
+@pytest.fixture
+def dial_coordinator(hass):
+    ctrl = make_controller()
+    ctrl.remote_sensor_mode = RemoteSensorControlMode.ENABLED
+    return make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+
+
+async def test_async_setup_entry_adds_dial_switch(hass, dial_coordinator) -> None:
+    entry = MagicMock()
+    entry.runtime_data = dial_coordinator
+    entities = []
+    await async_setup_entry(hass, entry, entities.extend)
+    assert {type(e) for e in entities} == {
+        QuiltScheduleSwitch,
+        QuiltDialTemperatureSwitch,
+    }
+
+
+def test_dial_temperature_switch_state(dial_coordinator) -> None:
+    entity = QuiltDialTemperatureSwitch(dial_coordinator, "ctrl-001")
+    assert entity.unique_id == "quilt_ctrl_ctrl-001_use_dial_temperature"
+    assert entity.entity_category is EntityCategory.CONFIG
+    assert entity.is_on is True
+
+    ctrl = dial_coordinator.ctrl_by_id["ctrl-001"]
+    ctrl.remote_sensor_mode = RemoteSensorControlMode.DISABLED
+    assert entity.is_on is False
+    ctrl.remote_sensor_mode = RemoteSensorControlMode.UNSPECIFIED
+    assert entity.is_on is None
+
+
+@pytest.mark.asyncio
+async def test_dial_temperature_switch_turn_off(dial_coordinator) -> None:
+    entity = QuiltDialTemperatureSwitch(dial_coordinator, "ctrl-001")
+    dial_coordinator.is_streaming = True
+    await entity.async_turn_off()
+    dial_coordinator.async_set_controller.assert_awaited_once_with(
+        dial_coordinator.ctrl_by_id["ctrl-001"], uses_dial_temperature=False
+    )
+    dial_coordinator.async_request_refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_dial_temperature_switch_turn_on_polls_without_stream(
+    dial_coordinator,
+) -> None:
+    entity = QuiltDialTemperatureSwitch(dial_coordinator, "ctrl-001")
+    dial_coordinator.is_streaming = False
+    await entity.async_turn_on()
+    dial_coordinator.async_set_controller.assert_awaited_once_with(
+        dial_coordinator.ctrl_by_id["ctrl-001"], uses_dial_temperature=True
+    )
+    dial_coordinator.async_request_refresh.assert_awaited_once()
+
+
+def test_dial_temperature_switch_unavailable_when_dial_offline(hass) -> None:
+    coordinator = make_mock_coordinator(
+        hass, make_snapshot(controllers=[make_controller(online=False)])
+    )
+    entity = QuiltDialTemperatureSwitch(coordinator, "ctrl-001")
+    assert entity.available is False

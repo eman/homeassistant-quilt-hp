@@ -19,6 +19,7 @@ from custom_components.quilt_hp.coordinator import QuiltCoordinator
 from .conftest import (
     get_stream_callback,
     make_comfort_setting,
+    make_controller,
     make_entry_mock,
     make_idu,
     make_snapshot,
@@ -196,6 +197,51 @@ async def test_stream_push_notifies_listeners(hass: HomeAssistant, mock_client) 
     assert calls
 
 
+async def test_stream_delete_removes_object_and_reindexes(
+    hass: HomeAssistant, mock_client
+) -> None:
+    """A deleted object leaves the snapshot and the indexes, and stays gone."""
+    from quilt_hp.models.enums import FanSpeed
+
+    client, stream = mock_client
+    client.get_snapshot = AsyncMock(
+        return_value=make_snapshot(
+            indoor_units=[make_idu(), make_idu(idu_id="idu-002")]
+        )
+    )
+    coordinator = QuiltCoordinator(hass, make_entry_mock(), "user@example.com")
+    await coordinator.async_setup()
+
+    calls: list[bool] = []
+    unsub = coordinator.async_add_listener(lambda: calls.append(True))
+    get_stream_callback(stream, "on_delete")("indoor_unit", "idu-002")
+    unsub()
+
+    assert calls
+    assert "idu-002" not in coordinator.idu_by_id
+    assert "idu-001" in coordinator.idu_by_id
+
+    # An update already in flight for the deleted unit must not re-add it.
+    handler = get_stream_callback(stream, "on_indoor_unit_update")
+    handler(make_idu(idu_id="idu-002", fan_speed=FanSpeed.MEDIUM))
+    assert "idu-002" not in coordinator.idu_by_id
+
+
+async def test_stream_delete_of_unknown_object_does_not_notify(
+    hass: HomeAssistant, mock_client
+) -> None:
+    _client, stream = mock_client
+    coordinator = QuiltCoordinator(hass, make_entry_mock(), "user@example.com")
+    await coordinator.async_setup()
+
+    calls: list[bool] = []
+    unsub = coordinator.async_add_listener(lambda: calls.append(True))
+    get_stream_callback(stream, "on_delete")("controller", "ctrl-missing")
+    unsub()
+
+    assert not calls
+
+
 # ── Stream error / reconnect handling ─────────────────────────────────────────
 
 
@@ -341,7 +387,7 @@ async def test_set_indoor_unit_applies_result_to_snapshot(
 
     await coordinator.async_set_indoor_unit(make_idu(), led_brightness=1.0)
 
-    coordinator.data.apply_indoor_unit.assert_called_once_with(updated)
+    assert coordinator.idu_by_id["idu-001"].controls.led_color_code == 0x11223344
 
 
 async def test_set_space_applies_result_to_snapshot(
@@ -352,12 +398,12 @@ async def test_set_space_applies_result_to_snapshot(
     coordinator = QuiltCoordinator(hass, make_entry_mock(), "user@example.com")
     await coordinator.async_setup()
 
-    updated = make_space()
+    updated = make_space(ambient_temp_c=25.0)
     client.set_space = AsyncMock(return_value=updated)
 
     await coordinator.async_set_space(make_space(), mode=None)
 
-    coordinator.data.apply_space.assert_called_once_with(updated)
+    assert coordinator.spaces_by_id["space-001"].state.ambient_temperature_c == 25.0
 
 
 async def test_auth_retry_success_after_relogin(
@@ -706,3 +752,57 @@ async def test_energy_notify_auth_failure_starts_reauth(
     await coordinator._update_energy_and_notify()
 
     entry.async_start_reauth.assert_called_once_with(hass)
+
+
+async def test_set_controller_applies_result_to_snapshot(
+    hass: HomeAssistant, mock_client
+) -> None:
+    """The Dial write result is merged, keeping hardware fields it lacks."""
+    from quilt_hp.models.enums import RemoteSensorControlMode
+
+    client, _stream = mock_client
+    ctrl = make_controller()
+    ctrl.serial_number = "QD1-0001"
+    client.get_snapshot = AsyncMock(return_value=make_snapshot(controllers=[ctrl]))
+    coordinator = QuiltCoordinator(hass, make_entry_mock(), "user@example.com")
+    await coordinator.async_setup()
+
+    updated = make_controller()
+    updated.remote_sensor_mode = RemoteSensorControlMode.DISABLED
+    client.set_controller = AsyncMock(return_value=updated)
+
+    await coordinator.async_set_controller(ctrl, uses_dial_temperature=False)
+
+    client.set_controller.assert_awaited_once_with(ctrl, uses_dial_temperature=False)
+    merged = coordinator.ctrl_by_id["ctrl-001"]
+    assert merged.uses_dial_temperature is False
+    assert merged.serial_number == "QD1-0001"
+
+
+async def test_self_test_start_and_cancel_call_client(
+    hass: HomeAssistant, mock_client
+) -> None:
+    client, _stream = mock_client
+    client.start_self_test = AsyncMock()
+    client.cancel_self_test = AsyncMock()
+    coordinator = QuiltCoordinator(hass, make_entry_mock(), "user@example.com")
+    await coordinator.async_setup()
+    idu = coordinator.idu_by_id["idu-001"]
+
+    await coordinator.async_start_self_test(idu)
+    await coordinator.async_cancel_self_test(idu)
+
+    client.start_self_test.assert_awaited_once_with(idu)
+    client.cancel_self_test.assert_awaited_once_with(idu)
+
+
+async def test_self_test_failure_raises_home_assistant_error(
+    hass: HomeAssistant, mock_client
+) -> None:
+    client, _stream = mock_client
+    client.start_self_test = AsyncMock(side_effect=QuiltError("precondition"))
+    coordinator = QuiltCoordinator(hass, make_entry_mock(), "user@example.com")
+    await coordinator.async_setup()
+
+    with pytest.raises(HomeAssistantError, match="Quilt command failed"):
+        await coordinator.async_start_self_test(coordinator.idu_by_id["idu-001"])

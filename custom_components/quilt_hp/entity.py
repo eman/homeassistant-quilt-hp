@@ -178,14 +178,16 @@ class QuiltControllerEntity(QuiltEntity):
         return controller_device_info(ctrl, via_id, space)
 
 
-def _is_serial_default_name(name: str, serial: str | None) -> bool:
+def _is_serial_default_name(name: str, *serials: str | None) -> bool:
     """Return True when *name* is Quilt's serial-based auto-generated default.
 
     Quilt names indoor units "Indoor Unit {serial}" and dials "Dial {serial}"
     by default. Such names duplicate the serial (already shown on the device
     card) and aren't user-friendly, so callers prefer the room name instead.
+    An indoor unit has two serials (its own and its Smart Module's); a name
+    containing either counts.
     """
-    return serial is not None and serial != "" and serial in name
+    return any(serial and serial in name for serial in serials)
 
 
 def idu_device_info(idu: IndoorUnit, space: Space | None = None) -> DeviceInfo:
@@ -198,8 +200,13 @@ def idu_device_info(idu: IndoorUnit, space: Space | None = None) -> DeviceInfo:
 
     Spaces are not HA devices; they are surfaced as areas via ``suggested_area``.
     """
+    # The unit's own serial (QN1-…); ``serial_number`` is its built-in Smart
+    # Module's (QS1-…), used only when the unit's own isn't reported.
+    serial = _clean(idu.unit_serial_number) or _clean(idu.serial_number)
     configured = idu.settings.name
-    if configured and not _is_serial_default_name(configured, idu.serial_number):
+    if configured and not _is_serial_default_name(
+        configured, idu.unit_serial_number, idu.serial_number
+    ):
         name = configured
     elif space is not None:
         name = f"{space.name} Indoor Unit"
@@ -214,8 +221,8 @@ def idu_device_info(idu: IndoorUnit, space: Space | None = None) -> DeviceInfo:
         manufacturer=_MANUFACTURER,
         model=_clean(idu.model_sku) or "Indoor Unit",
     )
-    if _clean(idu.serial_number):
-        info["serial_number"] = idu.serial_number
+    if serial:
+        info["serial_number"] = serial
     if _clean(idu.firmware_version):
         info["sw_version"] = idu.firmware_version
     if space is not None:

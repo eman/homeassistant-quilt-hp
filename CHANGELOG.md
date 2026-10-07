@@ -2,7 +2,38 @@
 
 ## [Unreleased]
 
+### Added
+- **Dial telemetry** (new in `quilt-hp-python` 0.6.0, which now decodes data the
+  server always sent): **Presence** (the Dial's own radar, separate from the
+  indoor unit's), **Humidity** (unavailable on Dials without the sensor) and
+  **Illuminance**, enabled by default; **Display** (screen awake), **Power**,
+  **Screen brightness**, **Main board temperature** and **Power board
+  temperature** diagnostics, disabled by default.
+- **Use Dial temperature** switch (configuration) per Dial: the Quilt app's
+  "Temperature sensor" setting — control the room to the Dial's reading, or to
+  the indoor unit's own sensor.
+- **Indoor-unit self-test:** **Start self-test** / **Cancel self-test** buttons
+  (new `button` platform; disabled by default, since the test takes up to 30
+  minutes and the room can't be heated or cooled meanwhile) and a **Self-test**
+  diagnostic binary sensor, on while the unit runs a self-test, health check or
+  commissioning. Starting a test is verified live by the library; cancelling
+  one is not yet.
+- **Dew point** sensor per indoor unit (the unit's own inlet dew point) and an
+  **Outdoor unit share** diagnostic (the outdoor unit's share attributed to the
+  indoor unit, for apportioning energy per room; disabled by default).
+- Diagnostics downloads include each indoor unit's test mode and active
+  conditions, each Dial's temperature-sensor setting and display state, and when
+  the system's configuration last changed.
+
 ### Changed
+- Requires `quilt-hp-python>=0.6.0`.
+- The indoor-unit device's serial number is now the unit's own (`QN1-…`); it
+  showed the built-in Smart Module's (`QS1-…`). A Quilt default name containing
+  either serial is still replaced by the room name.
+- The Dial's **PCB temperature A** / **PCB temperature B** diagnostics are
+  renamed **Encoder temperature** / **SoC temperature**, which is what the
+  library now identifies them as. Unique IDs are unchanged, so history carries
+  over.
 - **Minimum Home Assistant version is now 2026.8.** Parent/child device links
   (outdoor unit → indoor unit, Dial → indoor unit, remote sensors → their
   indoor unit or Dial) now use `DeviceInfo.via_device_id` instead of the
@@ -15,6 +46,16 @@
   that is not registered yet simply yields no link, matching what the registry
   did with an unresolvable identifier tuple. Device grouping in the UI is
   unchanged.
+
+### Fixed
+- **Offline Dials are now reported offline.** The library always considered a
+  Dial online, so its entities never went unavailable and the Dial **Online**
+  sensor was always on. A Dial that hasn't reported in 5 minutes is now offline,
+  as in the Quilt app.
+- Objects deleted from the Quilt account (e.g. a removed Dial or remote sensor)
+  are now dropped as soon as the stream reports the deletion, and their
+  entities go unavailable. Previously the deletion arrived as an ordinary update
+  and re-added the object; its device is still removed on the next reload.
 
 ## [6.0.2] - 2026-08-28
 

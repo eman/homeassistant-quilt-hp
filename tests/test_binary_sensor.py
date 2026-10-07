@@ -7,13 +7,24 @@ from unittest.mock import MagicMock, PropertyMock
 from quilt_hp.models.enums import OccupancyState, Presence
 
 from custom_components.quilt_hp.binary_sensor import (
+    CONTROLLER_BINARY_SENSOR_DESCRIPTIONS,
     IDU_BINARY_SENSOR_DESCRIPTIONS,
+    ControllerBinarySensorDescription,
+    IDUBinarySensorDescription,
     QuiltControllerBinarySensor,
     QuiltIDUBinarySensor,
     async_setup_entry,
 )
 
 from .conftest import make_controller, make_idu, make_mock_coordinator, make_snapshot
+
+
+def _idu_desc(key: str) -> IDUBinarySensorDescription:
+    return next(d for d in IDU_BINARY_SENSOR_DESCRIPTIONS if d.key == key)
+
+
+def _ctrl_desc(key: str) -> ControllerBinarySensorDescription:
+    return next(d for d in CONTROLLER_BINARY_SENSOR_DESCRIPTIONS if d.key == key)
 
 
 async def test_async_setup_entry(hass) -> None:
@@ -38,8 +49,9 @@ async def test_async_setup_entry(hass) -> None:
     entities = []
     await async_setup_entry(hass, entry, lambda x: entities.extend(x))
 
-    # Should create 5 IDU sensors + 1 controller sensor
-    assert len(entities) == 6
+    assert len(entities) == len(IDU_BINARY_SENSOR_DESCRIPTIONS) + len(
+        CONTROLLER_BINARY_SENSOR_DESCRIPTIONS
+    )
 
 
 async def test_idu_presence_sensor_or_of_channels(hass) -> None:
@@ -52,9 +64,7 @@ async def test_idu_presence_sensor_or_of_channels(hass) -> None:
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
 
-    sensor = QuiltIDUBinarySensor(
-        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[0]
-    )
+    sensor = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("presence"))
 
     assert sensor.is_on is True
     assert sensor.available
@@ -71,9 +81,7 @@ async def test_idu_presence_sensor_clear(hass) -> None:
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
 
-    sensor = QuiltIDUBinarySensor(
-        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[0]
-    )
+    sensor = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("presence"))
 
     assert sensor.is_on is False
     assert sensor.available
@@ -89,9 +97,7 @@ async def test_idu_presence_sensor_unreported(hass) -> None:
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
 
-    sensor = QuiltIDUBinarySensor(
-        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[0]
-    )
+    sensor = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("presence"))
 
     assert sensor.is_on is None
 
@@ -106,8 +112,8 @@ async def test_idu_radar_channel_sensors(hass) -> None:
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
 
-    ch0 = QuiltIDUBinarySensor(coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[2])
-    ch1 = QuiltIDUBinarySensor(coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[3])
+    ch0 = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("motion"))
+    ch1 = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("radar_1"))
 
     assert ch0.is_on is True
     assert ch1.is_on is False
@@ -126,8 +132,8 @@ async def test_idu_radar_channel_sensors_unspecified(hass) -> None:
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
 
-    ch0 = QuiltIDUBinarySensor(coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[2])
-    ch1 = QuiltIDUBinarySensor(coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[3])
+    ch0 = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("motion"))
+    ch1 = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("radar_1"))
 
     assert ch0.is_on is None
     assert ch1.is_on is None
@@ -143,9 +149,7 @@ async def test_idu_occupied_sensor(hass) -> None:
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
 
-    sensor = QuiltIDUBinarySensor(
-        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[1]
-    )
+    sensor = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("occupied"))
 
     assert sensor.is_on is True
     assert sensor.available
@@ -158,9 +162,7 @@ async def test_idu_online_sensor(hass) -> None:
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
 
-    sensor = QuiltIDUBinarySensor(
-        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[4]
-    )
+    sensor = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("online"))
 
     assert sensor.is_on is True
     assert sensor.available
@@ -173,9 +175,7 @@ async def test_idu_offline(hass) -> None:
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
 
-    sensor = QuiltIDUBinarySensor(
-        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[0]
-    )
+    sensor = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("presence"))
 
     assert not sensor.available
 
@@ -188,26 +188,20 @@ async def test_idu_missing_presence(hass) -> None:
     snapshot = make_snapshot(indoor_units=[idu])
     coordinator = make_mock_coordinator(hass, snapshot)
 
-    sensor = QuiltIDUBinarySensor(
-        coordinator, idu.id, IDU_BINARY_SENSOR_DESCRIPTIONS[0]
-    )
+    sensor = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("presence"))
 
     assert sensor.is_on is None
 
 
 async def test_controller_online_sensor(hass) -> None:
     """Test controller online sensor."""
-    from custom_components.quilt_hp.binary_sensor import (
-        CONTROLLER_BINARY_SENSOR_DESCRIPTIONS,
-    )
-
     controller = make_controller(online=True)
 
     snapshot = make_snapshot(controllers=[controller])
     coordinator = make_mock_coordinator(hass, snapshot)
 
     sensor = QuiltControllerBinarySensor(
-        coordinator, controller.id, CONTROLLER_BINARY_SENSOR_DESCRIPTIONS[0]
+        coordinator, controller.id, _ctrl_desc("online")
     )
 
     # Controller is_online is derived from state_updated_at
@@ -220,18 +214,69 @@ async def test_controller_online_sensor(hass) -> None:
 
 async def test_controller_offline(hass) -> None:
     """Test controller sensor creation."""
-    from custom_components.quilt_hp.binary_sensor import (
-        CONTROLLER_BINARY_SENSOR_DESCRIPTIONS,
-    )
-
     controller = make_controller(online=False)
 
     snapshot = make_snapshot(controllers=[controller])
     coordinator = make_mock_coordinator(hass, snapshot)
 
     sensor = QuiltControllerBinarySensor(
-        coordinator, controller.id, CONTROLLER_BINARY_SENSOR_DESCRIPTIONS[0]
+        coordinator, controller.id, _ctrl_desc("online")
     )
 
     # Just verify the sensor is created successfully
     assert sensor.available
+
+
+async def test_idu_self_test_sensor(hass) -> None:
+    from quilt_hp.models.enums import IndoorUnitTestMode
+
+    idu = make_idu()
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[idu]))
+    sensor = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("self_test"))
+
+    assert sensor.is_on is False
+    idu.state.test_mode = IndoorUnitTestMode.HEALTH_CHECK
+    assert sensor.is_on is True
+    assert sensor.unique_id == "quilt_idu_idu-001_self_test"
+
+
+async def test_idu_self_test_unavailable_when_offline(hass) -> None:
+    idu = make_idu(online=False)
+    coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[idu]))
+    sensor = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("self_test"))
+    assert sensor.available is False
+
+
+async def test_controller_presence_sensor(hass) -> None:
+    """The Dial's own radar: target or phase channel."""
+    ctrl = make_controller()
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    sensor = QuiltControllerBinarySensor(coordinator, ctrl.id, _ctrl_desc("presence"))
+
+    assert sensor.is_on is None  # no radar reading yet
+    ctrl.radar_target_detected = False
+    ctrl.radar_phase_detected = False
+    assert sensor.is_on is False
+    ctrl.radar_phase_detected = True
+    assert sensor.is_on is True
+
+
+async def test_controller_presence_unavailable_when_offline(hass) -> None:
+    ctrl = make_controller(online=False)
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    sensor = QuiltControllerBinarySensor(coordinator, ctrl.id, _ctrl_desc("presence"))
+    assert sensor.available is False
+
+
+async def test_controller_display_sensor(hass) -> None:
+    from quilt_hp.models.enums import ControllerViewState
+
+    ctrl = make_controller()
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    sensor = QuiltControllerBinarySensor(coordinator, ctrl.id, _ctrl_desc("display"))
+
+    assert sensor.is_on is None
+    ctrl.view_state = ControllerViewState.SLEEP
+    assert sensor.is_on is False
+    ctrl.view_state = ControllerViewState.GLANCE
+    assert sensor.is_on is True
