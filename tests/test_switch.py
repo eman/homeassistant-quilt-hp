@@ -138,9 +138,28 @@ async def test_dial_temperature_switch_turn_on_polls_without_stream(
     dial_coordinator.async_request_refresh.assert_awaited_once()
 
 
-def test_dial_temperature_switch_unavailable_when_dial_offline(hass) -> None:
-    coordinator = make_mock_coordinator(
-        hass, make_snapshot(controllers=[make_controller(online=False)])
-    )
+def test_dial_temperature_switch_available_when_dial_offline(hass) -> None:
+    """The setting is Quilt's, so it can be changed while the Dial is offline."""
+    ctrl = make_controller(online=False)
+    ctrl.remote_sensor_mode = RemoteSensorControlMode.ENABLED
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
     entity = QuiltDialTemperatureSwitch(coordinator, "ctrl-001")
+    assert entity.available is True
+    assert entity.is_on is True
+
+
+def test_dial_temperature_switch_unavailable_when_setting_unknown(
+    dial_coordinator,
+) -> None:
+    entity = QuiltDialTemperatureSwitch(dial_coordinator, "ctrl-001")
+    ctrl = dial_coordinator.ctrl_by_id["ctrl-001"]
+    ctrl.remote_sensor_mode = RemoteSensorControlMode.UNSPECIFIED
+    assert entity.available is False
+
+
+def test_dial_temperature_switch_unavailable_when_dial_deleted(
+    dial_coordinator,
+) -> None:
+    entity = QuiltDialTemperatureSwitch(dial_coordinator, "ctrl-001")
+    dial_coordinator.ctrl_by_id = {}
     assert entity.available is False

@@ -68,7 +68,10 @@ async def async_get_config_entry_diagnostics(
                 "firmware_version": ctrl.firmware_version,
                 "uses_dial_temperature": ctrl.uses_dial_temperature,
                 "view_state": ctrl.view_state.name,
-                "has_humidity_sensor": ctrl.humidity_percent is not None,
+                # Unknown while offline: an offline Dial reports no readings.
+                "has_humidity_sensor": (
+                    ctrl.humidity_percent is not None if ctrl.is_online else None
+                ),
             }
         )
 

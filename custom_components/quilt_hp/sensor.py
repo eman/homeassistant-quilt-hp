@@ -37,6 +37,7 @@ from homeassistant.const import (
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    Platform,
     UnitOfEnergy,
     UnitOfFrequency,
     UnitOfPower,
@@ -44,6 +45,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -56,6 +58,7 @@ from quilt_hp.models.qsm import QuiltSmartModule
 from quilt_hp.models.sensor import ControllerRemoteSensor, RemoteSensor
 from quilt_hp.models.space import Space
 
+from .const import DOMAIN
 from .coordinator import QuiltCoordinator
 from .entity import (
     QuiltControllerEntity,
@@ -521,6 +524,10 @@ ODU_SENSOR_DESCRIPTIONS: tuple[ODUSensorDescription, ...] = (
 class ControllerSensorDescription(SensorEntityDescription):
     value_fn: Callable[[Controller], Any] = lambda _: None
     available_fn: Callable[[Controller], bool] = lambda ctrl: ctrl.is_online
+    # Whether the Dial has the hardware for this sensor. A sensor is created
+    # once the Dial shows it does (an offline Dial reports nothing), and then
+    # kept, since its registry entry outlives a restart.
+    exists_fn: Callable[[Controller], bool] = lambda _: True
 
 
 CONTROLLER_SENSOR_DESCRIPTIONS: tuple[ControllerSensorDescription, ...] = (
@@ -542,6 +549,7 @@ CONTROLLER_SENSOR_DESCRIPTIONS: tuple[ControllerSensorDescription, ...] = (
         native_unit_of_measurement=PERCENTAGE,
         value_fn=lambda ctrl: _rounded(ctrl.humidity_percent, 1),
         available_fn=lambda ctrl: ctrl.is_online and ctrl.humidity_percent is not None,
+        exists_fn=lambda ctrl: ctrl.humidity_percent is not None,
     ),
     ControllerSensorDescription(
         # Calibrated ambient light at the Dial — unlike the indoor unit's
@@ -551,7 +559,8 @@ CONTROLLER_SENSOR_DESCRIPTIONS: tuple[ControllerSensorDescription, ...] = (
         device_class=SensorDeviceClass.ILLUMINANCE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=LIGHT_LUX,
-        value_fn=lambda ctrl: _rounded(ctrl.ambient_light_lux, 1),
+        # Whole lux: finer steps would record a new state on most ~10 s reports.
+        value_fn=lambda ctrl: _rounded(ctrl.ambient_light_lux, 0),
     ),
     ControllerSensorDescription(
         key="power",
@@ -763,7 +772,7 @@ CONTROLLER_REMOTE_SENSOR_DESCRIPTIONS: tuple[ControllerRemoteSensorDescription, 
 
 
 async def async_setup_entry(
-    _hass: HomeAssistant,
+    hass: HomeAssistant,
     entry: QuiltConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
@@ -815,12 +824,22 @@ async def async_setup_entry(
             for odu_desc in ODU_SENSOR_DESCRIPTIONS:
                 new.append((key, QuiltODUSensor(coordinator, odu_id, idu_id, odu_desc)))
 
-        # Controller (Dial) sensors
+        # Controller (Dial) sensors, each keyed on its own: one the Dial lacks
+        # the hardware for is added once the Dial reports it.
+        entity_registry = er.async_get(hass)
         for ctrl in snapshot.controllers:
-            key = f"ctrl_{ctrl.id}"
-            if key in known:
-                continue
             for ctrl_desc in CONTROLLER_SENSOR_DESCRIPTIONS:
+                key = f"ctrl_{ctrl.id}_{ctrl_desc.key}"
+                if key in known:
+                    continue
+                if not ctrl_desc.exists_fn(ctrl) and not (
+                    entity_registry.async_get_entity_id(
+                        Platform.SENSOR,
+                        DOMAIN,
+                        QuiltControllerSensor.unique_id_for(ctrl.id, ctrl_desc),
+                    )
+                ):
+                    continue
                 new.append(
                     (key, QuiltControllerSensor(coordinator, ctrl.id, ctrl_desc))
                 )
@@ -1032,7 +1051,12 @@ class QuiltControllerSensor(QuiltControllerEntity, SensorEntity):
         """Initialize the controller sensor entity."""
         super().__init__(coordinator, ctrl_id)
         self.entity_description = description
-        self._attr_unique_id: str = f"quilt_ctrl_{ctrl_id}_{description.key}"
+        self._attr_unique_id: str = self.unique_id_for(ctrl_id, description)
+
+    @staticmethod
+    def unique_id_for(ctrl_id: str, description: ControllerSensorDescription) -> str:
+        """Return the unique id of the sensor *description* on Dial *ctrl_id*."""
+        return f"quilt_ctrl_{ctrl_id}_{description.key}"
 
     @override
     def _model_available(self, ctrl: Controller) -> bool:

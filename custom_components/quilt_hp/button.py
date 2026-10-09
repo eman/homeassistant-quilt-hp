@@ -5,9 +5,11 @@ Provides button entities for:
   app's "Run diagnostic test").
 
 The self-test takes up to 30 minutes, during which the room can't be heated
-or cooled, and its results go to Quilt, not to Home Assistant. Both buttons
-are disabled by default so the test can't be started by accident; follow its
-progress with the "Self-test" binary sensor.
+or cooled; other indoor units on the same outdoor unit may wait in standby
+meanwhile. Its results go to Quilt, not to Home Assistant. Both buttons are
+disabled by default so the test can't be started by accident; follow its
+progress with the "Self-test" binary sensor. Start is unavailable while a test
+runs, and Cancel while none does.
 """
 
 from __future__ import annotations
@@ -36,6 +38,8 @@ PARALLEL_UPDATES = 1
 @dataclass(frozen=True, kw_only=True)
 class IDUButtonDescription(ButtonEntityDescription):
     press_fn: Callable[[QuiltCoordinator, IndoorUnit], Awaitable[None]]
+    # Whether the button can be pressed, given the unit's self-test state.
+    available_fn: Callable[[QuiltCoordinator, IndoorUnit], bool]
 
 
 IDU_BUTTON_DESCRIPTIONS: tuple[IDUButtonDescription, ...] = (
@@ -45,6 +49,7 @@ IDU_BUTTON_DESCRIPTIONS: tuple[IDUButtonDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         press_fn=lambda coordinator, idu: coordinator.async_start_self_test(idu),
+        available_fn=lambda coordinator, idu: not coordinator.self_test_active(idu),
     ),
     IDUButtonDescription(
         key="cancel_self_test",
@@ -52,6 +57,7 @@ IDU_BUTTON_DESCRIPTIONS: tuple[IDUButtonDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         press_fn=lambda coordinator, idu: coordinator.async_cancel_self_test(idu),
+        available_fn=lambda coordinator, idu: coordinator.self_test_active(idu),
     ),
 )
 
@@ -92,6 +98,12 @@ class QuiltIDUButton(QuiltIDUEntity, ButtonEntity):
         super().__init__(coordinator, idu_id)
         self.entity_description = description
         self._attr_unique_id: str = f"quilt_idu_{idu_id}_{description.key}"
+
+    @override
+    def _model_available(self, idu: IndoorUnit) -> bool:
+        return idu.is_online and self.entity_description.available_fn(
+            self.coordinator, idu
+        )
 
     @override
     async def async_press(self) -> None:

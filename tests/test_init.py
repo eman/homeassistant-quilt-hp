@@ -239,3 +239,135 @@ async def test_async_remove_entry_no_email(hass: HomeAssistant) -> None:
         await async_remove_entry(hass, entry)
 
     mock_store.delete.assert_not_awaited()
+
+
+# ── Full setup through Home Assistant ─────────────────────────────────────────
+
+
+def _dial_snapshot():
+    from quilt_hp.models.enums import RemoteSensorControlMode
+
+    from .conftest import make_controller
+
+    ctrl = make_controller()
+    ctrl.remote_sensor_mode = RemoteSensorControlMode.ENABLED
+    return make_snapshot(controllers=[ctrl])
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_setup_loads_every_platform_and_unloads(
+    hass: HomeAssistant, mock_client
+) -> None:
+    """Set up, reload and unload the entry with the real platforms."""
+    from homeassistant.config_entries import ConfigEntryState
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.quilt_hp.const import DOMAIN
+
+    client, _stream = mock_client
+    client.get_snapshot = AsyncMock(return_value=_dial_snapshot())
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={"email": "a@b.com", "system_id": "sys-001"}
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.LOADED
+
+    registry = er.async_get(hass)
+    start = registry.async_get_entity_id(
+        "button", DOMAIN, "quilt_idu_idu-001_start_self_test"
+    )
+    assert start is not None
+    assert registry.async_get(start).disabled_by is er.RegistryEntryDisabler.INTEGRATION
+
+    switch_id = registry.async_get_entity_id(
+        "switch", DOMAIN, "quilt_ctrl_ctrl-001_use_dial_temperature"
+    )
+    assert switch_id is not None
+    state = hass.states.get(switch_id)
+    assert state is not None
+    assert state.state == "on"
+    assert state.attributes["friendly_name"].endswith("Use Dial temperature")
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.LOADED
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_remove_config_entry_device_only_when_gone(
+    hass: HomeAssistant, mock_client
+) -> None:
+    """A device can be deleted by hand only once Quilt no longer has it."""
+    from homeassistant.helpers import device_registry as dr
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.quilt_hp import async_remove_config_entry_device
+    from custom_components.quilt_hp.const import DOMAIN
+
+    client, _stream = mock_client
+    client.get_snapshot = AsyncMock(return_value=_dial_snapshot())
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={"email": "a@b.com", "system_id": "sys-001"}
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = dr.async_get(hass)
+    present = registry.async_get_device_by_identifier(
+        (DOMAIN, "c_ctrl-001"), entry.entry_id
+    )
+    assert present is not None
+    gone = registry.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, "c_ctrl-gone")}
+    )
+
+    assert not await async_remove_config_entry_device(hass, entry, present)
+    assert await async_remove_config_entry_device(hass, entry, gone)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_remove_stale_devices_and_room_entities(hass: HomeAssistant) -> None:
+    """Setup cleanup drops devices and room entities Quilt no longer has."""
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.quilt_hp.const import DOMAIN
+    from custom_components.quilt_hp.registry import async_remove_stale_devices
+
+    entry = MockConfigEntry(domain=DOMAIN, data={"email": "a@b.com"})
+    entry.add_to_hass(hass)
+    devices = dr.async_get(hass)
+    entities = er.async_get(hass)
+    kept = devices.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, "i_idu-001")}
+    )
+    stale = devices.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, "c_ctrl-gone")}
+    )
+    room = entities.async_get_or_create(
+        "climate", DOMAIN, "quilt_space_climate_space-001", config_entry=entry
+    )
+    old_room = entities.async_get_or_create(
+        "climate", DOMAIN, "quilt_space_climate_space-gone", config_entry=entry
+    )
+    old_room_sensor = entities.async_get_or_create(
+        "sensor", DOMAIN, "quilt_space_space-gone_energy_today", config_entry=entry
+    )
+
+    async_remove_stale_devices(hass, entry.entry_id, make_snapshot())
+
+    assert devices.async_get(kept.id) is not None
+    assert devices.async_get(stale.id) is None
+    assert entities.async_get(room.entity_id) is not None
+    assert entities.async_get(old_room.entity_id) is None
+    assert entities.async_get(old_room_sensor.entity_id) is None

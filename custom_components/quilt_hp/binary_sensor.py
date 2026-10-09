@@ -35,7 +35,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from quilt_hp.models.controller import Controller
-from quilt_hp.models.enums import OccupancyState, Presence
+from quilt_hp.models.enums import IndoorUnitTestMode, OccupancyState, Presence
 from quilt_hp.models.indoor_unit import IndoorUnit
 
 from .coordinator import QuiltCoordinator
@@ -120,12 +120,18 @@ IDU_BINARY_SENSOR_DESCRIPTIONS: tuple[IDUBinarySensorDescription, ...] = (
     ),
     IDUBinarySensorDescription(
         # Health check, commissioning or another test: while on, the unit
-        # follows the test rather than the room's controls.
+        # follows the test rather than the room's controls. Also on for a unit
+        # waiting in standby while another on its outdoor unit is tested.
+        # Unknown when the unit doesn't report a test mode at all.
         key="self_test",
         translation_key="self_test",
         device_class=BinarySensorDeviceClass.RUNNING,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda idu: idu.is_under_test,
+        value_fn=lambda idu: (
+            None
+            if idu.effective_test_mode == IndoorUnitTestMode.UNSPECIFIED
+            else idu.is_under_test
+        ),
     ),
     IDUBinarySensorDescription(
         key="online",

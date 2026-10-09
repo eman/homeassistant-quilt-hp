@@ -121,10 +121,17 @@ If you see a repair notification about stream degradation:
 ### Entities Show as "Unavailable"
 - **Device offline:** Verify your Quilt indoor unit has power and WiFi connection.
   A Dial counts as offline (and its entities unavailable) when it hasn't reported
-  in 5 minutes — the same rule the Quilt app uses
+  in 5 minutes — the same rule the Quilt app uses (its **Use Dial temperature**
+  switch stays available, so you can still switch the room away from it)
 - **Recent setup:** Allow 1-2 minutes after initial setup for devices to come online
 - **Cloud connection:** Check that the Quilt app works on your phone
 - **Reload integration:** Try reloading from **Devices & Services**
+
+### Removed Devices
+A Dial, indoor unit or sensor removed in the Quilt app is removed from Home
+Assistant as soon as Quilt reports the deletion and a refresh confirms it. If a
+removed device is left behind (e.g. it was deleted while Home Assistant was
+offline), delete it from its device page, or reload the integration.
 
 ### Integration Won't Load / Setup Fails
 1. **Check logs:** Go to **Settings** → **System** → **Logs**, search for "quilt"
@@ -229,8 +236,11 @@ heating), the room can't be heated or cooled meanwhile, and the results go to Qu
 (the library sends the same request the Quilt app does, but cancelling hasn't been
 verified against a live system yet).
 Both buttons are disabled by default so the test can't be started by accident;
-enable them from the device page. The **Self-test** binary sensor is on while the
-unit runs any test (self-test, health check or commissioning).
+enable them from the device page. **Start self-test** is unavailable while a test
+runs and **Cancel self-test** while none does. The **Self-test** binary sensor is
+on while the unit runs any test (self-test, health check or commissioning). Other
+indoor units on the same outdoor unit may wait in standby during the test, and
+their **Self-test** sensor is on too.
 
 #### Presence vs occupancy
 
@@ -303,9 +313,12 @@ interchangeable:
 | Local comms health | `sensor` | Disabled |
 
 - **Use Dial temperature** is the Quilt app's "Temperature sensor" setting: on, the
-  room is controlled to the Dial's reading; off, to the indoor unit's own sensor.
+  room is controlled to the Dial's reading; off, to another sensor (normally the
+  indoor unit's own). It stays available while the Dial is offline.
 - **Presence** comes from the Dial's own radar, separate from the indoor unit's.
-- **Humidity** is unavailable on Dials without a humidity sensor.
+- **Humidity** is only created for Dials with a humidity sensor. A Dial that is
+  offline when the integration starts gets it once it reports a reading.
+- **Illuminance** is reported in whole lux.
 - **Display** is on whenever the screen is awake (glance, active or in use).
 
 ## Troubleshooting

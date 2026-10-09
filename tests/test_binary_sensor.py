@@ -234,8 +234,13 @@ async def test_idu_self_test_sensor(hass) -> None:
     coordinator = make_mock_coordinator(hass, make_snapshot(indoor_units=[idu]))
     sensor = QuiltIDUBinarySensor(coordinator, idu.id, _idu_desc("self_test"))
 
+    assert sensor.is_on is None  # no test mode reported
+    idu.state.test_mode = IndoorUnitTestMode.INACTIVE
     assert sensor.is_on is False
     idu.state.test_mode = IndoorUnitTestMode.HEALTH_CHECK
+    assert sensor.is_on is True
+    # Waiting while another unit on the same outdoor unit is tested.
+    idu.state.test_mode = IndoorUnitTestMode.STANDBY
     assert sensor.is_on is True
     assert sensor.unique_id == "quilt_idu_idu-001_self_test"
 

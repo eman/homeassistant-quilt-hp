@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 import contextlib
+import dataclasses
 from datetime import datetime, timedelta
 import logging
 from typing import Any, override
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
@@ -37,6 +39,7 @@ from .const import (
     DOMAIN,
     ENERGY_UPDATE_INTERVAL_MINUTES,
 )
+from .registry import async_remove_deleted
 from .token_store import HATokenStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,6 +52,27 @@ _STREAM_RESTART_MAX_DELAY_S: float = 600.0
 
 # Stream states in which the library's reconnect loop has exited for good.
 _STREAM_DEAD_STATES: frozenset[str] = frozenset({"stopped", "error"})
+
+# How long a requested self-test counts as running before the unit reports it.
+# The library saw a unit enter its test within 15 s of the request.
+SELF_TEST_PENDING_S: float = 60.0
+
+# Controller (Dial) readings that come from its ``state`` sub-message.
+_CONTROLLER_READINGS: tuple[str, ...] = (
+    "raw_thermistor_c",
+    "pcb_temperature_a_c",
+    "pcb_temperature_b_c",
+    "calibrated_ambient_c",
+    "screen_brightness",
+    "radar_target_detected",
+    "radar_phase_detected",
+    "ambient_light_lux",
+    "humidity_percent",
+    "power_w",
+    "main_board_temperature_c",
+    "power_board_temperature_c",
+    "accelerometer_raw",
+)
 
 
 class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
@@ -86,7 +110,15 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         self._stream_restart_task: asyncio.Task[None] | None = None
         self._was_available: bool = True  # Track connection state for logging
         self._full_refresh_inflight: bool = False
+        self._full_refresh_queued: bool = False
         self._last_full_fetch: datetime | None = None
+        self._stream_topics: set[str] = set()
+        # Stream deletions not yet confirmed by a full fetch, with the value of
+        # ``_deletion_seq`` when each arrived.
+        self._deletion_seq: int = 0
+        self._pending_deletions: dict[tuple[str, str], int] = {}
+        self._self_test_requested_at: dict[str, datetime] = {}
+        self._cancel_callbacks: set[CALLBACK_TYPE] = set()
         self.spaces_by_id: dict[str, Space] = {}
         self.idu_by_id: dict[str, IndoorUnit] = {}
         self.idu_by_space_id: dict[str, IndoorUnit] = {}
@@ -220,12 +252,48 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         return result
 
     async def async_start_self_test(self, indoor_unit: IndoorUnit) -> None:
-        """Start an indoor unit's diagnostic self-test."""
+        """Start an indoor unit's diagnostic self-test.
+
+        The unit only reports the test some seconds later, so the request is
+        remembered (see ``self_test_active``) and, without the stream to push
+        the change, a poll is scheduled for when the unit should report it.
+        """
         await self._write(lambda: self._client.start_self_test(indoor_unit))
+        self._self_test_requested_at[indoor_unit.id] = dt_util.utcnow()
+        self.async_update_listeners()
+        if not self.is_streaming:
+            self._async_call_later(SELF_TEST_PENDING_S, self._async_full_refresh)
 
     async def async_cancel_self_test(self, indoor_unit: IndoorUnit) -> None:
         """Cancel an indoor unit's running diagnostic self-test."""
         await self._write(lambda: self._client.cancel_self_test(indoor_unit))
+        _ = self._self_test_requested_at.pop(indoor_unit.id, None)
+        self.async_update_listeners()
+
+    def self_test_active(self, indoor_unit: IndoorUnit) -> bool:
+        """Return True while *indoor_unit* runs a test or one was just requested."""
+        if indoor_unit.is_under_test:
+            return True
+        requested_at = self._self_test_requested_at.get(indoor_unit.id)
+        return requested_at is not None and dt_util.utcnow() - requested_at < timedelta(
+            seconds=SELF_TEST_PENDING_S
+        )
+
+    def _async_call_later(
+        self, delay: float, action: Callable[[], Awaitable[None]]
+    ) -> None:
+        """Run *action* after *delay* seconds unless the coordinator shuts down."""
+        cancel: CALLBACK_TYPE | None = None
+
+        async def _run(_now: datetime) -> None:
+            if cancel is not None:
+                self._cancel_callbacks.discard(cancel)
+            await action()
+
+        cancel = async_call_later(
+            self.hass, delay, HassJob(_run, cancel_on_shutdown=True)
+        )
+        self._cancel_callbacks.add(cancel)
 
     async def async_set_schedule_execution(self, *, paused: bool) -> None:
         """Pause or resume all schedules with one transparent auth-refresh retry."""
@@ -275,6 +343,10 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         """Stop the poll timer, the stream, and close the gRPC channel."""
         await super().async_shutdown()
 
+        for cancel in self._cancel_callbacks:
+            cancel()
+        self._cancel_callbacks.clear()
+
         if self._stream is not None:
             with contextlib.suppress(Exception):
                 await self._stream.stop()
@@ -302,9 +374,7 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         _ = stream.on_outdoor_unit_update(
             self._make_stream_handler(SystemSnapshot.apply_outdoor_unit)
         )
-        _ = stream.on_controller_update(
-            self._make_stream_handler(SystemSnapshot.apply_controller)
-        )
+        _ = stream.on_controller_update(self._make_stream_handler(_apply_controller))
         _ = stream.on_qsm_update(self._make_stream_handler(SystemSnapshot.apply_qsm))
         _ = stream.on_remote_sensor_update(
             self._make_stream_handler(SystemSnapshot.apply_remote_sensor)
@@ -320,6 +390,34 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         # Only assign after successful start so async_shutdown doesn't try to
         # stop a stream that never began.
         self._stream = stream
+        self._stream_topics = set(topics)
+
+    def _subscribe_new_topics(self, snapshot: SystemSnapshot) -> None:
+        """Subscribe the stream to objects added since it started.
+
+        The stream only carries the topics it subscribed to, so a Dial or
+        indoor unit added later would otherwise be updated only by polls.
+        """
+        stream = self._stream
+        if stream is None or self.config_entry is None:
+            return
+        new_topics = [
+            t for t in snapshot.stream_topics() if t not in self._stream_topics
+        ]
+        if not new_topics:
+            return
+        self._stream_topics.update(new_topics)
+
+        async def _subscribe() -> None:
+            try:
+                await stream.subscribe(new_topics)
+            except Exception as err:
+                _LOGGER.debug("Quilt stream subscribe failed: %s", err)
+                self._stream_topics.difference_update(new_topics)
+
+        self.config_entry.async_create_background_task(
+            self.hass, _subscribe(), name="quilt_hp-stream-subscribe"
+        )
 
     def _make_stream_handler[M](
         self, apply: Callable[[SystemSnapshot, M], M]
@@ -329,22 +427,34 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         def _handler(model: M) -> None:
             if self.data:
                 _ = apply(self.data, model)
+                self._subscribe_new_topics(self.data)
                 self.async_set_updated_data(self.data)
             self._on_stream_push()
 
         return _handler
 
     def _on_stream_delete(self, kind: str, entity_id: str) -> None:
-        """Drop an object the server deleted from the snapshot.
+        """Drop an object the server deleted and confirm it with a full fetch.
 
-        Deletions never reach the ``on_*_update`` callbacks. ``remove`` also
-        tombstones the object so an update already in flight can't re-add
-        it; its entities go unavailable, and its device is cleaned up from
-        the registry on the next reload.
+        Deletions never reach the ``on_*_update`` callbacks. Its entities go
+        unavailable right away. The confirming fetch then removes the device
+        from the registry if the object is really gone, or restores it if it
+        isn't: ``remove`` tombstones the object in the current snapshot, which
+        would also swallow its re-creation when it moves (e.g. a Dial moved to
+        another room may be deleted from one room and created in the other).
         """
-        if self.data and self.data.remove(kind, entity_id):
-            _LOGGER.debug("Quilt %s %s was deleted", kind, entity_id)
-            self.async_set_updated_data(self.data)
+        if not (self.data and self.data.remove(kind, entity_id)):
+            return
+        _LOGGER.debug("Quilt %s %s was deleted", kind, entity_id)
+        self._deletion_seq += 1
+        self._pending_deletions[(kind, entity_id)] = self._deletion_seq
+        self.async_set_updated_data(self.data)
+        if self.config_entry is not None:
+            self.config_entry.async_create_background_task(
+                self.hass,
+                self._async_full_refresh(),
+                name="quilt_hp-deletion-refresh",
+            )
 
     def _on_stream_error(self, err: object) -> None:
         """Handle permanent stream death.
@@ -474,12 +584,21 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         )
 
     async def _async_full_refresh(self) -> None:
-        """Run an un-debounced full refresh, guarded against overlap."""
+        """Run an un-debounced full refresh, guarded against overlap.
+
+        A refresh requested while one is running runs once more after it, since
+        the running fetch may predate whatever prompted the request.
+        """
         if self._full_refresh_inflight:
+            self._full_refresh_queued = True
             return
         self._full_refresh_inflight = True
         try:
-            await self.async_refresh()
+            while True:
+                self._full_refresh_queued = False
+                await self.async_refresh()
+                if not self._full_refresh_queued:
+                    break
         finally:
             self._full_refresh_inflight = False
 
@@ -507,6 +626,7 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
 
     @override
     async def _async_update_data(self) -> SystemSnapshot:
+        deletion_seq = self._deletion_seq
         try:
             self._client.invalidate_snapshot()
             snapshot = await self._with_auth_retry(
@@ -535,12 +655,36 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
         ):
             self._schedule_stream_restart()
 
+        self._apply_pending_deletions(snapshot, deletion_seq)
+        self._subscribe_new_topics(snapshot)
         await self._async_update_energy()
         self._last_full_fetch = dt_util.utcnow()
         # HA assigns self.data directly from the return value, bypassing
         # async_set_updated_data — rebuild the entity lookups here.
         self._rebuild_indexes(snapshot)
         return snapshot
+
+    def _apply_pending_deletions(
+        self, snapshot: SystemSnapshot, deletion_seq: int
+    ) -> None:
+        """Reconcile stream deletions with a freshly fetched *snapshot*.
+
+        *deletion_seq* is ``_deletion_seq`` from before the fetch. A deletion
+        that arrived during the fetch is re-applied, since the fetch may
+        predate it; its own confirming fetch follows. One that arrived before
+        is settled by the fetch: if the object is gone its device is removed
+        from the registry; if it's still there it was moved, not deleted.
+        """
+        for key, seq in list(self._pending_deletions.items()):
+            kind, object_id = key
+            if seq > deletion_seq:
+                _ = snapshot.remove(kind, object_id)
+                continue
+            del self._pending_deletions[key]
+            if not _snapshot_has(snapshot, kind, object_id) and self.config_entry:
+                async_remove_deleted(
+                    self.hass, self.config_entry.entry_id, kind, object_id
+                )
 
     async def _async_update_energy(self) -> None:
         """Fetch today's energy metrics from the API, rate-limited.
@@ -603,3 +747,46 @@ class QuiltCoordinator(DataUpdateCoordinator[SystemSnapshot]):
                 translation_domain=DOMAIN,
                 translation_key="auth_failed",
             ) from err
+
+
+def _snapshot_has(snapshot: SystemSnapshot, kind: str, object_id: str) -> bool:
+    """Return True if *snapshot* holds the stream object *kind*/*object_id*."""
+    items: list[Any] = getattr(snapshot, _SNAPSHOT_ATTR_BY_KIND.get(kind, ""), [])
+    return any(item.id == object_id for item in items)
+
+
+# Snapshot list holding each stream object kind (``NotifierStream.on_delete``).
+_SNAPSHOT_ATTR_BY_KIND: dict[str, str] = {
+    "space": "spaces",
+    "indoor_unit": "indoor_units",
+    "outdoor_unit": "outdoor_units",
+    "controller": "controllers",
+    "qsm": "quilt_smart_modules",
+    "remote_sensor": "remote_sensors",
+    "controller_remote_sensor": "controller_remote_sensors",
+    "software_update_info": "software_update_infos",
+}
+
+
+def _apply_controller(snapshot: SystemSnapshot, ctrl: Controller) -> Controller:
+    """Merge a stream-updated Dial, treating an empty ``state`` as offline.
+
+    The server sends an offline Dial with an empty ``state``: no timestamp,
+    and zeros for every reading. ``apply_controller`` keeps the previous
+    timestamp when the new one is missing, so the Dial would stay online for
+    up to 5 minutes reporting 0 °C. Clear the readings and the timestamp
+    instead, so it goes offline at once, as it would after a full fetch.
+    """
+    # The library parses ``screen_brightness`` as None only when ``state``
+    # was absent from the update, as it is in a sparse diff.
+    if ctrl.state_updated_at is not None or ctrl.screen_brightness is None:
+        return snapshot.apply_controller(ctrl)
+    cleared: dict[str, Any] = dict.fromkeys(_CONTROLLER_READINGS)
+    offline = dataclasses.replace(
+        snapshot.apply_controller(ctrl), state_updated_at=None, **cleared
+    )
+    # Not found when the Dial was deleted and apply_controller ignored it.
+    for i, existing in enumerate(snapshot.controllers):
+        if existing.id == offline.id:
+            snapshot.controllers[i] = offline
+    return offline

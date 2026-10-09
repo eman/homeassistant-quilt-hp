@@ -3,7 +3,8 @@
 Provides switch entities for:
 - Schedule execution: pause/resume all schedules for the system (per Location).
 - Dial temperature sensor: control the room to the Dial's temperature or to
-  the indoor unit's own sensor (per Dial; the app's "Temperature sensor").
+  another sensor, normally the indoor unit's own (per Dial; the app's
+  "Temperature sensor").
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from quilt_hp.models.controller import Controller
 from quilt_hp.models.system import Location
 
 from .coordinator import QuiltCoordinator
@@ -113,9 +115,13 @@ class QuiltScheduleSwitch(QuiltEntity, SwitchEntity):
 class QuiltDialTemperatureSwitch(QuiltControllerEntity, SwitchEntity):
     """Switch choosing which temperature a Dial's room is controlled to.
 
-    On: the room is controlled to the Dial's temperature reading. Off: to the
-    indoor unit's own (onboard) sensor. This is the Quilt app's "Temperature
-    sensor" setting for the Dial.
+    On: the room is controlled to the Dial's temperature reading. Off: to
+    another sensor, normally the indoor unit's own. This is the Quilt app's
+    "Temperature sensor" setting for the Dial.
+
+    The setting is stored by Quilt, not on the Dial, so it stays available while
+    the Dial is offline: that is when switching the room away from the Dial's
+    temperature matters most.
     """
 
     _attr_entity_category: EntityCategory = EntityCategory.CONFIG
@@ -125,6 +131,10 @@ class QuiltDialTemperatureSwitch(QuiltControllerEntity, SwitchEntity):
         """Initialize the Dial temperature switch entity."""
         super().__init__(coordinator, ctrl_id)
         self._attr_unique_id: str = f"quilt_ctrl_{ctrl_id}_use_dial_temperature"
+
+    @override
+    def _model_available(self, ctrl: Controller) -> bool:
+        return ctrl.uses_dial_temperature is not None
 
     @property
     @override
@@ -141,7 +151,7 @@ class QuiltDialTemperatureSwitch(QuiltControllerEntity, SwitchEntity):
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Control the room to the indoor unit's own sensor."""
+        """Stop controlling the room to the Dial's temperature."""
         await self.coordinator.async_set_controller(
             self._ctrl, uses_dial_temperature=False
         )

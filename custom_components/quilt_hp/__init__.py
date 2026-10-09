@@ -11,7 +11,6 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from quilt_hp.exceptions import QuiltAuthError
-from quilt_hp.models.system import SystemSnapshot
 
 from .const import (
     CONF_EMAIL,
@@ -21,6 +20,7 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import QuiltCoordinator
+from .registry import async_remove_stale_devices, device_identifiers
 from .token_store import HATokenStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -81,7 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: QuiltConfigEntry) -> boo
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     _async_cleanup_removed_entities(hass, entry)
-    _async_cleanup_stale_devices(hass, entry, coordinator.data)
+    async_remove_stale_devices(hass, entry.entry_id, coordinator.data)
 
     async def _async_reload_on_options_update(
         hass: HomeAssistant, entry: QuiltConfigEntry
@@ -121,28 +121,15 @@ def _async_cleanup_removed_entities(
             entity_registry.async_remove(entity.entity_id)
 
 
-@callback
-def _async_cleanup_stale_devices(
-    hass: HomeAssistant, entry: QuiltConfigEntry, snapshot: SystemSnapshot
-) -> None:
-    """Remove registry devices that no longer exist in the Quilt account.
+async def async_remove_config_entry_device(
+    _hass: HomeAssistant, entry: QuiltConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow deleting a device only once it's gone from the Quilt account.
 
-    Identifier prefixes match the ``*_device_info`` builders in entity.py.
+    Such a device is normally removed automatically when the stream reports
+    the deletion; this covers a deletion missed while the stream was down.
     """
-    valid_identifiers: set[tuple[str, str]] = {
-        *((DOMAIN, f"i_{idu.id}") for idu in snapshot.indoor_units),
-        *((DOMAIN, f"u_{odu.id}") for odu in snapshot.outdoor_units),
-        *((DOMAIN, f"c_{ctrl.id}") for ctrl in snapshot.controllers),
-        *((DOMAIN, f"rs_{rs.id}") for rs in snapshot.remote_sensors),
-        *((DOMAIN, f"crs_{crs.id}") for crs in snapshot.controller_remote_sensors),
-        *((DOMAIN, f"loc_{loc.id}") for loc in snapshot.locations),
-    }
-    device_registry = dr.async_get(hass)
-    for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
-        if not device.identifiers & valid_identifiers:
-            device_registry.async_update_device(
-                device.id, remove_config_entry_id=entry.entry_id
-            )
+    return not device_entry.identifiers & device_identifiers(entry.runtime_data.data)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

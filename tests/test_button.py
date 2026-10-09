@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from homeassistant.const import EntityCategory
+import pytest
 
 from custom_components.quilt_hp.button import (
     IDU_BUTTON_DESCRIPTIONS,
@@ -40,6 +41,24 @@ async def test_self_test_buttons_disabled_by_default(hass) -> None:
         assert button.unique_id == f"quilt_idu_idu-001_{desc.key}"
 
 
+@pytest.mark.parametrize(
+    ("active", "start_available", "cancel_available"),
+    [(False, True, False), (True, False, True)],
+)
+async def test_self_test_buttons_follow_test_state(
+    hass, active: bool, start_available: bool, cancel_available: bool
+) -> None:
+    """Start is offered only while no test runs, Cancel only while one does."""
+    coordinator = make_mock_coordinator(hass, make_snapshot())
+    coordinator.self_test_active = MagicMock(return_value=active)
+    start = QuiltIDUButton(coordinator, "idu-001", _desc("start_self_test"))
+    cancel = QuiltIDUButton(coordinator, "idu-001", _desc("cancel_self_test"))
+
+    assert start.available is start_available
+    assert cancel.available is cancel_available
+    coordinator.self_test_active.assert_called_with(coordinator.idu_by_id["idu-001"])
+
+
 async def test_start_self_test_press(hass) -> None:
     coordinator = make_mock_coordinator(hass, make_snapshot())
     coordinator.is_streaming = True
@@ -71,5 +90,6 @@ async def test_button_unavailable_when_idu_offline(hass) -> None:
     coordinator = make_mock_coordinator(
         hass, make_snapshot(indoor_units=[make_idu(online=False)])
     )
+    coordinator.self_test_active = MagicMock(return_value=False)
     button = QuiltIDUButton(coordinator, "idu-001", _desc("start_self_test"))
     assert button.available is False

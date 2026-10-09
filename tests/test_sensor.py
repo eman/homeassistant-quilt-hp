@@ -656,7 +656,7 @@ def test_controller_display_telemetry(hass) -> None:
     ctrl.power_board_temperature_c = 33.5
     coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
 
-    assert _ctrl_sensor(coordinator, "illuminance").native_value == 123.5
+    assert _ctrl_sensor(coordinator, "illuminance").native_value == 123
     assert _ctrl_sensor(coordinator, "humidity").native_value == 47.3
     assert _ctrl_sensor(coordinator, "power").native_value == 0.99
     assert _ctrl_sensor(coordinator, "screen_brightness").native_value == 42
@@ -690,3 +690,89 @@ def test_controller_pcb_sensors_keep_unique_ids(hass) -> None:
     assert encoder.translation_key == "encoder_temperature"
     assert soc.unique_id == "quilt_ctrl_ctrl-001_pcb_temperature_b"
     assert soc.translation_key == "soc_temperature"
+
+
+async def _setup_ctrl_sensors(hass, coordinator) -> list[QuiltControllerSensor]:
+    created: list[QuiltControllerSensor] = []
+
+    def capture(entities, **_kwargs):
+        created.extend(e for e in entities if isinstance(e, QuiltControllerSensor))
+
+    entry = MagicMock()
+    entry.entry_id = "test"
+    entry.runtime_data = coordinator
+    await async_setup_entry(hass, entry, capture)
+    return created
+
+
+def _keys(sensors: list[QuiltControllerSensor]) -> set[str]:
+    return {s.entity_description.key for s in sensors}
+
+
+async def test_controller_humidity_created_only_with_sensor(hass) -> None:
+    """A Dial without the humidity sensor gets no Humidity entity."""
+    ctrl = make_controller()  # humidity_percent defaults to None
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+
+    created = await _setup_ctrl_sensors(hass, coordinator)
+
+    assert "humidity" not in _keys(created)
+    assert "ambient_temperature" in _keys(created)
+
+
+async def test_controller_humidity_added_once_reported(hass) -> None:
+    """A Dial offline at setup gets its Humidity entity when it reports one."""
+    ctrl = make_controller()
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    created = await _setup_ctrl_sensors(hass, coordinator)
+    count = len(created)
+
+    ctrl.humidity_percent = 45.0
+    for listener in coordinator.listeners:
+        listener()
+
+    assert [s.entity_description.key for s in created[count:]] == ["humidity"]
+
+
+async def test_controller_humidity_kept_when_registered(hass) -> None:
+    """A registered Humidity entity is recreated while its Dial is offline."""
+    from homeassistant.helpers import entity_registry as er
+
+    from custom_components.quilt_hp.const import DOMAIN
+
+    ctrl = make_controller(online=False)
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    er.async_get(hass).async_get_or_create(
+        "sensor", DOMAIN, "quilt_ctrl_ctrl-001_humidity"
+    )
+
+    created = await _setup_ctrl_sensors(hass, coordinator)
+
+    assert "humidity" in _keys(created)
+
+
+def test_controller_illuminance_enabled_in_whole_lux(hass) -> None:
+    ctrl = make_controller()
+    ctrl.ambient_light_lux = 0.6
+    coordinator = make_mock_coordinator(hass, make_snapshot(controllers=[ctrl]))
+    sensor = _ctrl_sensor(coordinator, "illuminance")
+    assert sensor.entity_registry_enabled_default is True
+    assert sensor.native_value == 1
+
+
+def test_controller_sensor_unavailable_after_five_minutes_silence(
+    hass, freezer
+) -> None:
+    """A Dial that stops reporting goes offline after 5 minutes."""
+    from datetime import timedelta
+
+    coordinator = make_mock_coordinator(
+        hass, make_snapshot(controllers=[make_controller()])
+    )
+    sensor = _ctrl_sensor(coordinator, "ambient_temperature")
+    assert sensor.available is True
+
+    freezer.tick(timedelta(minutes=4, seconds=59))
+    assert sensor.available is True
+    freezer.tick(timedelta(seconds=2))
+    assert sensor.available is False

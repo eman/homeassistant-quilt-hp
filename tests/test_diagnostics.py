@@ -152,3 +152,22 @@ async def test_diagnostics_reports_quilt_hp_0_6_fields(hass) -> None:
     assert diag_data["controllers"][0]["view_state"] == "ACTIVE"
     assert diag_data["controllers"][0]["uses_dial_temperature"] is True
     assert diag_data["controllers"][0]["has_humidity_sensor"] is False
+
+
+async def test_diagnostics_humidity_sensor_unknown_while_dial_offline(hass) -> None:
+    """An offline Dial reports no readings, so its sensor can't be judged."""
+    offline = make_controller(online=False)
+    with_sensor = make_controller(ctrl_id="ctrl-002")
+    with_sensor.humidity_percent = 45.0
+    coordinator = make_mock_coordinator(
+        hass, make_snapshot(controllers=[offline, with_sensor])
+    )
+    entry = MagicMock()
+    entry.runtime_data = coordinator
+    entry.version = 1
+    entry.domain = "quilt_hp"
+
+    diag_data = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diag_data["controllers"][0]["has_humidity_sensor"] is None
+    assert diag_data["controllers"][1]["has_humidity_sensor"] is True
