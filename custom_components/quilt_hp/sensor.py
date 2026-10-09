@@ -268,8 +268,9 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
         native_unit_of_measurement=PERCENTAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda idu: (
-            _rounded(idu.performance_metrics.odu_usage_fraction * 100, 1) or None
+            _rounded(fraction * 100, 1)
             if idu.performance_metrics
+            and (fraction := idu.performance_metrics.odu_usage_fraction)
             else None
         ),
         entity_registry_enabled_default=False,

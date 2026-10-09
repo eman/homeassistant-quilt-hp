@@ -645,6 +645,10 @@ def test_idu_outdoor_unit_share(hass) -> None:
     idu.performance_metrics.odu_usage_fraction = 0.0
     assert _idu_sensor(coordinator, "outdoor_unit_share").native_value is None
 
+    # A tiny real share rounds to 0.0 % but is still reported.
+    idu.performance_metrics.odu_usage_fraction = 0.0004
+    assert _idu_sensor(coordinator, "outdoor_unit_share").native_value == 0.0
+
 
 def test_controller_display_telemetry(hass) -> None:
     ctrl = make_controller()
