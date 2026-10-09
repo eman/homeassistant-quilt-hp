@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [6.1.0] - 2026-10-08
+
 ### Added
 - **Dial telemetry** (new in `quilt-hp-python` 0.6.0, which now decodes data the
   server always sent): **Presence** (the Dial's own radar, separate from the
@@ -431,7 +433,8 @@
 - JWT token persistence via `HATokenStore` (HA `Storage` API)
 - Automatic token refresh with transparent re-login on expiry
 
-[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.2...HEAD
+[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.1.0...HEAD
+[6.1.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.2...v6.1.0
 [6.0.2]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.1...v6.0.2
 [6.0.1]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v0.5.3...v6.0.0
