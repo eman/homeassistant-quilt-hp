@@ -34,6 +34,18 @@ from .token_store import HATokenStore
 _LOGGER = logging.getLogger(__name__)
 
 
+def _form_schema(fields: dict[Any, Any]) -> Any:
+    """Build the data schema of a config or options flow form.
+
+    Home Assistant 2026.10 replaced voluptuous with probatio: its forms take a
+    ``probatio.Schema``, and it aliases ``voluptuous`` to probatio at startup, so
+    at runtime this already is one. Type checkers still see voluptuous's own
+    ``Schema``, which older Home Assistant versions (without probatio) expect;
+    hence ``Any``. Use ``probatio.Schema`` here once 2026.10 is the minimum.
+    """
+    return vol.Schema(fields)
+
+
 class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow: email → OTP → (home selection if multiple) → done."""
 
@@ -79,7 +91,7 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({vol.Required(CONF_EMAIL): str}),
+            data_schema=_form_schema({vol.Required(CONF_EMAIL): str}),
             errors=errors,
         )
 
@@ -146,7 +158,7 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if self._otp_future is None or self._login_task is None:
                 return self.async_show_form(
                     step_id="otp",
-                    data_schema=vol.Schema({vol.Required("otp"): str}),
+                    data_schema=_form_schema({vol.Required("otp"): str}),
                     errors={"base": "unknown"},
                     description_placeholders={"email": self._email},
                 )
@@ -175,7 +187,7 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="otp",
-            data_schema=vol.Schema({vol.Required("otp"): str}),
+            data_schema=_form_schema({vol.Required("otp"): str}),
             errors=errors,
             description_placeholders={"email": self._email},
         )
@@ -285,7 +297,7 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         labels = list(label_to_system.keys())
         return self.async_show_form(
             step_id="home",
-            data_schema=vol.Schema({vol.Required(CONF_HOME_NAME): vol.In(labels)}),
+            data_schema=_form_schema({vol.Required(CONF_HOME_NAME): vol.In(labels)}),
             description_placeholders={"count": str(len(self._systems))},
         )
 
@@ -343,7 +355,7 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=vol.Schema({}),
+            data_schema=_form_schema({}),
             errors=errors,
             description_placeholders={"email": self._email},
         )
@@ -372,7 +384,7 @@ class QuiltConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required(
                         CONF_EMAIL,
@@ -427,7 +439,7 @@ class QuiltOptionsFlow(config_entries.OptionsFlow):
         )
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required(
                         CONF_POLLING_INTERVAL, default=current
