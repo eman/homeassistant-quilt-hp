@@ -94,8 +94,22 @@
       "radar_channel_1": {
         "name": "Radar channel 1"
       },
+      "self_test": {
+        "name": "Self-test"
+      },
+      "display": {
+        "name": "Display"
+      },
       "online": {
         "name": "Online"
+      }
+    },
+    "button": {
+      "start_self_test": {
+        "name": "Start self-test"
+      },
+      "cancel_self_test": {
+        "name": "Cancel self-test"
       }
     },
     "light": {
@@ -158,6 +172,9 @@
       "humidity": {
         "name": "Humidity"
       },
+      "dew_point": {
+        "name": "Dew point"
+      },
       "inlet_temperature": {
         "name": "Inlet temperature"
       },
@@ -178,6 +195,9 @@
       },
       "coefficient_of_performance": {
         "name": "Coefficient of performance"
+      },
+      "outdoor_unit_share": {
+        "name": "Outdoor unit share"
       },
       "calibrated_temperature": {
         "name": "Calibrated temperature"
@@ -231,14 +251,26 @@
       "low_side_pressure": {
         "name": "Low-side pressure"
       },
-      "pcb_temperature_a": {
-        "name": "PCB temperature A"
+      "encoder_temperature": {
+        "name": "Encoder temperature"
       },
-      "pcb_temperature_b": {
-        "name": "PCB temperature B"
+      "soc_temperature": {
+        "name": "SoC temperature"
+      },
+      "main_board_temperature": {
+        "name": "Main board temperature"
+      },
+      "power_board_temperature": {
+        "name": "Power board temperature"
       },
       "calibrated_ambient": {
         "name": "Calibrated ambient"
+      },
+      "power": {
+        "name": "Power"
+      },
+      "screen_brightness": {
+        "name": "Screen brightness"
       },
       "wifi_signal": {
         "name": "Wi-Fi signal"
@@ -259,6 +291,9 @@
     "switch": {
       "schedules": {
         "name": "Schedules"
+      },
+      "use_dial_temperature": {
+        "name": "Use Dial temperature"
       }
     }
   },

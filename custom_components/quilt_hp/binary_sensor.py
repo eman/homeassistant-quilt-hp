@@ -2,8 +2,10 @@
 
 Provides binary sensor entities for:
 - QSM/IDU: presence (realtime, OR of both radar channels), occupancy
-  (derived auto-away decision), raw radar channels (diagnostic), online
-- Controller (Dial): online
+  (derived auto-away decision), raw radar channels (diagnostic), self-test
+  running (diagnostic), online
+- Controller (Dial): presence (the Dial's own radar), display on
+  (diagnostic), online
 
 Presence data has three tiers — see eman/homeassistant-quilt-hp#12:
 - ``sensor0_presence``/``sensor1_presence`` are the two detection channels
@@ -33,7 +35,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from quilt_hp.models.controller import Controller
-from quilt_hp.models.enums import OccupancyState, Presence
+from quilt_hp.models.enums import IndoorUnitTestMode, OccupancyState, Presence
 from quilt_hp.models.indoor_unit import IndoorUnit
 
 from .coordinator import QuiltCoordinator
@@ -117,6 +119,21 @@ IDU_BINARY_SENSOR_DESCRIPTIONS: tuple[IDUBinarySensorDescription, ...] = (
         ),
     ),
     IDUBinarySensorDescription(
+        # Health check, commissioning or another test: while on, the unit
+        # follows the test rather than the room's controls. Also on for a unit
+        # waiting in standby while another on its outdoor unit is tested.
+        # Unknown when the unit doesn't report a test mode at all.
+        key="self_test",
+        translation_key="self_test",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda idu: (
+            None
+            if idu.effective_test_mode == IndoorUnitTestMode.UNSPECIFIED
+            else idu.is_under_test
+        ),
+    ),
+    IDUBinarySensorDescription(
         key="online",
         translation_key="online",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
@@ -138,6 +155,22 @@ class ControllerBinarySensorDescription(BinarySensorEntityDescription):
 
 
 CONTROLLER_BINARY_SENSOR_DESCRIPTIONS: tuple[ControllerBinarySensorDescription, ...] = (
+    ControllerBinarySensorDescription(
+        # The Dial's own mm-wave radar, independent of the indoor unit's.
+        key="presence",
+        translation_key="presence",
+        device_class=BinarySensorDeviceClass.OCCUPANCY,
+        value_fn=lambda ctrl: ctrl.presence_detected,
+        available_fn=lambda ctrl: ctrl.is_online,
+    ),
+    ControllerBinarySensorDescription(
+        key="display",
+        translation_key="display",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda ctrl: ctrl.display_on,
+        available_fn=lambda ctrl: ctrl.is_online,
+        entity_registry_enabled_default=False,
+    ),
     ControllerBinarySensorDescription(
         key="online",
         translation_key="online",

@@ -1,8 +1,38 @@
 {
   "entity": {
+    "binary_sensor": {
+      "self_test": {
+        "default": "mdi:stethoscope"
+      },
+      "display": {
+        "default": "mdi:monitor",
+        "state": {
+          "off": "mdi:monitor-off"
+        }
+      }
+    },
+    "button": {
+      "start_self_test": {
+        "default": "mdi:stethoscope"
+      },
+      "cancel_self_test": {
+        "default": "mdi:stop-circle-outline"
+      }
+    },
+    "sensor": {
+      "screen_brightness": {
+        "default": "mdi:brightness-6"
+      },
+      "outdoor_unit_share": {
+        "default": "mdi:chart-pie"
+      }
+    },
     "switch": {
       "schedules": {
         "default": "mdi:calendar-clock"
+      },
+      "use_dial_temperature": {
+        "default": "mdi:thermostat"
       }
     }
   }

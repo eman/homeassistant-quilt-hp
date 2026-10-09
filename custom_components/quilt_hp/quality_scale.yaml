@@ -74,7 +74,9 @@ rules:
     comment: stream_degraded repair issue with polling-interval placeholder; auto-resolves.
   stale-devices:
     status: done
-    comment: Stale devices are removed from the registry at setup.
+    comment: >-
+      Devices are removed when the stream reports a deletion a refresh confirms,
+      and at setup; async_remove_config_entry_device allows deleting leftovers.
 
   # Platinum
   async-dependency: done

@@ -70,7 +70,7 @@ async def test_diagnostics_empty(hass) -> None:
 
     from .conftest import make_mock_coordinator
 
-    snapshot = MagicMock()
+    snapshot = make_snapshot()
     snapshot.spaces = []
     snapshot.indoor_units = []
     snapshot.outdoor_units = []
@@ -113,3 +113,61 @@ async def test_diagnostics_reports_stream_death_count(hass) -> None:
     assert diag_data["coordinator"]["is_streaming"] is True
     assert diag_data["coordinator"]["last_update_success"] is True
     assert "stream_error_count" not in diag_data["coordinator"]
+
+
+async def test_diagnostics_reports_quilt_hp_0_6_fields(hass) -> None:
+    """Self-test, active conditions, Dial settings and configuration time."""
+    from datetime import UTC, datetime
+
+    from quilt_hp.models.enums import (
+        ControllerViewState,
+        IndoorUnitTestMode,
+        RemoteSensorControlMode,
+    )
+    from quilt_hp.models.indoor_unit import IndoorUnitConditions
+
+    idu = make_idu()
+    idu.state.test_mode = IndoorUnitTestMode.HEALTH_CHECK
+    idu.conditions = IndoorUnitConditions(
+        *([1] * 4), 2, *([1] * 6)
+    )  # defrost_cycle ACTIVE, the rest INACTIVE
+    ctrl = make_controller()
+    ctrl.remote_sensor_mode = RemoteSensorControlMode.ENABLED
+    ctrl.view_state = ControllerViewState.ACTIVE
+    snapshot = make_snapshot(indoor_units=[idu], controllers=[ctrl])
+    changed = datetime(2026, 10, 6, 12, 0, tzinfo=UTC)
+    snapshot.version = int(changed.timestamp() * 1e9)
+    coordinator = make_mock_coordinator(hass, snapshot)
+
+    entry = MagicMock()
+    entry.runtime_data = coordinator
+    entry.version = 1
+    entry.domain = "quilt_hp"
+
+    diag_data = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diag_data["configuration_changed_at"] == changed.isoformat()
+    assert diag_data["indoor_units"][0]["active_conditions"] == ["defrost_cycle"]
+    assert diag_data["indoor_units"][0]["test_mode"] == "HEALTH_CHECK"
+    assert diag_data["controllers"][0]["view_state"] == "ACTIVE"
+    assert diag_data["controllers"][0]["uses_dial_temperature"] is True
+    assert diag_data["controllers"][0]["has_humidity_sensor"] is False
+
+
+async def test_diagnostics_humidity_sensor_unknown_while_dial_offline(hass) -> None:
+    """An offline Dial reports no readings, so its sensor can't be judged."""
+    offline = make_controller(online=False)
+    with_sensor = make_controller(ctrl_id="ctrl-002")
+    with_sensor.humidity_percent = 45.0
+    coordinator = make_mock_coordinator(
+        hass, make_snapshot(controllers=[offline, with_sensor])
+    )
+    entry = MagicMock()
+    entry.runtime_data = coordinator
+    entry.version = 1
+    entry.domain = "quilt_hp"
+
+    diag_data = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diag_data["controllers"][0]["has_humidity_sensor"] is None
+    assert diag_data["controllers"][1]["has_humidity_sensor"] is True

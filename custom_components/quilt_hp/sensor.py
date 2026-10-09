@@ -2,15 +2,18 @@
 
 Provides sensor entities for:
 - Space: space temperature (space-calibrated), active comfort setting
-- QSM/IDU: unit temp, humidity,
+- QSM/IDU: unit temp, humidity, dew point,
            inlet/outlet temp, presence level,
            COP, HVAC capacity (W), HVAC power (W), LED power (W),
-           coil/gas-pipe/liquid-pipe temperatures, inlet humidity,
-           module power, calibrated ambient temp, radar signals, illuminance
+           outdoor-unit share, coil/gas-pipe/liquid-pipe temperatures,
+           inlet humidity, module power, calibrated ambient temp,
+           radar signals, illuminance
 - OutdoorUnit: ambient temp, coil temp, exhaust temp, compressor frequency,
                pressures
-- Controller (Dial): ambient temperature, PCB temps, calibrated ambient,
-                     WiFi signal, WiFi frequency
+- Controller (Dial): ambient temperature, humidity, illuminance,
+                     encoder/SoC/main-board/power-board temps, calibrated
+                     ambient, power, screen brightness, WiFi signal,
+                     WiFi frequency
 - RemoteSensor (IDU-paired): temperature, humidity, battery, signal
 - ControllerRemoteSensor (Dial-paired): temperature, humidity, battery, signal
 - Space energy: today's kWh per room (from the energy API)
@@ -34,6 +37,7 @@ from homeassistant.const import (
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    Platform,
     UnitOfEnergy,
     UnitOfFrequency,
     UnitOfPower,
@@ -41,6 +45,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -53,6 +58,7 @@ from quilt_hp.models.qsm import QuiltSmartModule
 from quilt_hp.models.sensor import ControllerRemoteSensor, RemoteSensor
 from quilt_hp.models.space import Space
 
+from .const import DOMAIN
 from .coordinator import QuiltCoordinator
 from .entity import (
     QuiltControllerEntity,
@@ -151,6 +157,17 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
         value_fn=lambda idu: normalize_float(idu.state.ambient_humidity_percent),
     ),
     IDUSensorDescription(
+        # Dew point at the air inlet, derived by the unit itself; None while
+        # the unit flags its climate reading invalid.
+        key="dew_point",
+        translation_key="dew_point",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        suggested_display_precision=1,
+        value_fn=lambda idu: normalize_float(idu.dew_point_c),
+    ),
+    IDUSensorDescription(
         key="inlet_temperature",
         translation_key="inlet_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
@@ -238,6 +255,22 @@ IDU_SENSOR_DESCRIPTIONS: tuple[IDUSensorDescription, ...] = (
         value_fn=lambda idu: (
             _rounded(idu.performance_metrics.coefficient_of_performance, 2) or None
             if idu.performance_metrics
+            else None
+        ),
+        entity_registry_enabled_default=False,
+    ),
+    IDUSensorDescription(
+        # Share of the outdoor unit attributed to this indoor unit, for
+        # apportioning outdoor-unit energy per room. 0 means "not reported".
+        key="outdoor_unit_share",
+        translation_key="outdoor_unit_share",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda idu: (
+            _rounded(fraction * 100, 1)
+            if idu.performance_metrics
+            and (fraction := idu.performance_metrics.odu_usage_fraction)
             else None
         ),
         entity_registry_enabled_default=False,
@@ -492,6 +525,10 @@ ODU_SENSOR_DESCRIPTIONS: tuple[ODUSensorDescription, ...] = (
 class ControllerSensorDescription(SensorEntityDescription):
     value_fn: Callable[[Controller], Any] = lambda _: None
     available_fn: Callable[[Controller], bool] = lambda ctrl: ctrl.is_online
+    # Whether the Dial has the hardware for this sensor. A sensor is created
+    # once the Dial shows it does (an offline Dial reports nothing), and then
+    # kept, since its registry entry outlives a restart.
+    exists_fn: Callable[[Controller], bool] = lambda _: True
 
 
 CONTROLLER_SENSOR_DESCRIPTIONS: tuple[ControllerSensorDescription, ...] = (
@@ -505,8 +542,55 @@ CONTROLLER_SENSOR_DESCRIPTIONS: tuple[ControllerSensorDescription, ...] = (
         value_fn=lambda ctrl: normalize_float(ctrl.ambient_temperature_c),
     ),
     ControllerSensorDescription(
+        # Dials without the SHT4x humidity sensor report nothing (None).
+        key="humidity",
+        translation_key="humidity",
+        device_class=SensorDeviceClass.HUMIDITY,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        value_fn=lambda ctrl: _rounded(ctrl.humidity_percent, 1),
+        available_fn=lambda ctrl: ctrl.is_online and ctrl.humidity_percent is not None,
+        exists_fn=lambda ctrl: ctrl.humidity_percent is not None,
+    ),
+    ControllerSensorDescription(
+        # Calibrated ambient light at the Dial — unlike the indoor unit's
+        # illuminance, the cloud API does populate this.
+        key="illuminance",
+        translation_key="illuminance",
+        device_class=SensorDeviceClass.ILLUMINANCE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=LIGHT_LUX,
+        # Whole lux: finer steps would record a new state on most ~10 s reports.
+        value_fn=lambda ctrl: _rounded(ctrl.ambient_light_lux, 0),
+    ),
+    ControllerSensorDescription(
+        key="power",
+        translation_key="power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda ctrl: _rounded(ctrl.power_w, 2),
+        entity_registry_enabled_default=False,
+    ),
+    ControllerSensorDescription(
+        key="screen_brightness",
+        translation_key="screen_brightness",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda ctrl: (
+            _rounded(brightness * 100, 0)
+            if (brightness := normalize_float(ctrl.screen_brightness)) is not None
+            else None
+        ),
+        entity_registry_enabled_default=False,
+    ),
+    ControllerSensorDescription(
+        # Keys keep the old "pcb_temperature_a/b" names so existing entities
+        # carry over; the library now identifies them as encoder and SoC.
         key="pcb_temperature_a",
-        translation_key="pcb_temperature_a",
+        translation_key="encoder_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -516,12 +600,32 @@ CONTROLLER_SENSOR_DESCRIPTIONS: tuple[ControllerSensorDescription, ...] = (
     ),
     ControllerSensorDescription(
         key="pcb_temperature_b",
-        translation_key="pcb_temperature_b",
+        translation_key="soc_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda ctrl: normalize_float(ctrl.pcb_temperature_b_c),
+        entity_registry_enabled_default=False,
+    ),
+    ControllerSensorDescription(
+        key="main_board_temperature",
+        translation_key="main_board_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda ctrl: normalize_float(ctrl.main_board_temperature_c),
+        entity_registry_enabled_default=False,
+    ),
+    ControllerSensorDescription(
+        key="power_board_temperature",
+        translation_key="power_board_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda ctrl: normalize_float(ctrl.power_board_temperature_c),
         entity_registry_enabled_default=False,
     ),
     ControllerSensorDescription(
@@ -669,7 +773,7 @@ CONTROLLER_REMOTE_SENSOR_DESCRIPTIONS: tuple[ControllerRemoteSensorDescription, 
 
 
 async def async_setup_entry(
-    _hass: HomeAssistant,
+    hass: HomeAssistant,
     entry: QuiltConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
@@ -721,12 +825,22 @@ async def async_setup_entry(
             for odu_desc in ODU_SENSOR_DESCRIPTIONS:
                 new.append((key, QuiltODUSensor(coordinator, odu_id, idu_id, odu_desc)))
 
-        # Controller (Dial) sensors
+        # Controller (Dial) sensors, each keyed on its own: one the Dial lacks
+        # the hardware for is added once the Dial reports it.
+        entity_registry = er.async_get(hass)
         for ctrl in snapshot.controllers:
-            key = f"ctrl_{ctrl.id}"
-            if key in known:
-                continue
             for ctrl_desc in CONTROLLER_SENSOR_DESCRIPTIONS:
+                key = f"ctrl_{ctrl.id}_{ctrl_desc.key}"
+                if key in known:
+                    continue
+                if not ctrl_desc.exists_fn(ctrl) and not (
+                    entity_registry.async_get_entity_id(
+                        Platform.SENSOR,
+                        DOMAIN,
+                        QuiltControllerSensor.unique_id_for(ctrl.id, ctrl_desc),
+                    )
+                ):
+                    continue
                 new.append(
                     (key, QuiltControllerSensor(coordinator, ctrl.id, ctrl_desc))
                 )
@@ -938,7 +1052,12 @@ class QuiltControllerSensor(QuiltControllerEntity, SensorEntity):
         """Initialize the controller sensor entity."""
         super().__init__(coordinator, ctrl_id)
         self.entity_description = description
-        self._attr_unique_id: str = f"quilt_ctrl_{ctrl_id}_{description.key}"
+        self._attr_unique_id: str = self.unique_id_for(ctrl_id, description)
+
+    @staticmethod
+    def unique_id_for(ctrl_id: str, description: ControllerSensorDescription) -> str:
+        """Return the unique id of the sensor *description* on Dial *ctrl_id*."""
+        return f"quilt_ctrl_{ctrl_id}_{description.key}"
 
     @override
     def _model_available(self, ctrl: Controller) -> bool:

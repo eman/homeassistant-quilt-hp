@@ -33,7 +33,7 @@ from quilt_hp.models.outdoor_unit import OutdoorUnit, OutdoorUnitPerformanceData
 from quilt_hp.models.qsm import QsmSensors, QuiltSmartModule
 from quilt_hp.models.sensor import ControllerRemoteSensor, RemoteSensor
 from quilt_hp.models.space import Space, SpaceControls, SpaceSettings, SpaceState
-from quilt_hp.models.system import Location
+from quilt_hp.models.system import Location, SystemSnapshot
 
 from custom_components.quilt_hp.const import DOMAIN
 
@@ -302,23 +302,27 @@ def make_snapshot(
     remote_sensors=None,
     controller_remote_sensors=None,
     locations=None,
-) -> MagicMock:
-    """Build a minimal SystemSnapshot mock with real model lists."""
-    snapshot = MagicMock()
-    snapshot.spaces = spaces or [make_space()]
-    snapshot.indoor_units = indoor_units or [make_idu()]
-    snapshot.outdoor_units = outdoor_units or [make_odu()]
-    snapshot.controllers = controllers or []
-    snapshot.quilt_smart_modules = quilt_smart_modules or []
-    snapshot.comfort_settings = comfort_settings or []
-    snapshot.schedule_weeks = []
-    snapshot.schedule_days = []
-    snapshot.remote_sensors = remote_sensors or []
-    snapshot.controller_remote_sensors = controller_remote_sensors or []
-    snapshot.software_update_infos = []
-    snapshot.locations = locations or [make_location()]
-    snapshot.stream_topics.return_value = ["topic-1"]
-    return snapshot
+) -> SystemSnapshot:
+    """Build a minimal real SystemSnapshot.
+
+    A real snapshot (not a mock) so the library's ``apply_*`` merge and
+    ``remove`` tombstone logic runs exactly as it does in production.
+    """
+    return SystemSnapshot(
+        spaces=spaces or [make_space()],
+        indoor_units=indoor_units or [make_idu()],
+        outdoor_units=outdoor_units or [make_odu()],
+        controllers=controllers or [],
+        quilt_smart_modules=quilt_smart_modules or [],
+        comfort_settings=comfort_settings or [],
+        schedule_weeks=[],
+        schedule_days=[],
+        remote_sensors=remote_sensors or [],
+        controller_remote_sensors=controller_remote_sensors or [],
+        software_update_infos=[],
+        locations=locations or [make_location()],
+        timezone=None,
+    )
 
 
 # ── Coordinator / client mocks ────────────────────────────────────────────────

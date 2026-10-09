@@ -2,6 +2,9 @@
 
 Provides switch entities for:
 - Schedule execution: pause/resume all schedules for the system (per Location).
+- Dial temperature sensor: control the room to the Dial's temperature or to
+  another sensor, normally the indoor unit's own (per Dial; the app's
+  "Temperature sensor").
 """
 
 from __future__ import annotations
@@ -9,14 +12,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from quilt_hp.models.controller import Controller
 from quilt_hp.models.system import Location
 
 from .coordinator import QuiltCoordinator
 from .entity import (
+    QuiltControllerEntity,
     QuiltEntity,
     async_setup_dynamic_entities,
     location_device_info,
@@ -38,11 +44,17 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
 
     def _build_new(known: set[str]) -> list[tuple[str, SwitchEntity]]:
-        return [
+        new: list[tuple[str, SwitchEntity]] = [
             (loc.id, QuiltScheduleSwitch(coordinator, loc.id))
             for loc in coordinator.data.locations
             if loc.id not in known
         ]
+        new.extend(
+            (f"ctrl_{ctrl.id}", QuiltDialTemperatureSwitch(coordinator, ctrl.id))
+            for ctrl in coordinator.data.controllers
+            if f"ctrl_{ctrl.id}" not in known
+        )
+        return new
 
     async_setup_dynamic_entities(entry, coordinator, async_add_entities, _build_new)
 
@@ -98,3 +110,49 @@ class QuiltScheduleSwitch(QuiltEntity, SwitchEntity):
         await self.coordinator.async_set_schedule_execution(paused=True)
         # Location state is not carried on the stream — always poll.
         await self.coordinator.async_request_refresh()
+
+
+class QuiltDialTemperatureSwitch(QuiltControllerEntity, SwitchEntity):
+    """Switch choosing which temperature a Dial's room is controlled to.
+
+    On: the room is controlled to the Dial's temperature reading. Off: to
+    another sensor, normally the indoor unit's own. This is the Quilt app's
+    "Temperature sensor" setting for the Dial.
+
+    The setting is stored by Quilt, not on the Dial, so it stays available while
+    the Dial is offline: that is when switching the room away from the Dial's
+    temperature matters most.
+    """
+
+    _attr_entity_category: EntityCategory = EntityCategory.CONFIG
+    _attr_translation_key: str = "use_dial_temperature"
+
+    def __init__(self, coordinator: QuiltCoordinator, ctrl_id: str) -> None:
+        """Initialize the Dial temperature switch entity."""
+        super().__init__(coordinator, ctrl_id)
+        self._attr_unique_id: str = f"quilt_ctrl_{ctrl_id}_use_dial_temperature"
+
+    @override
+    def _model_available(self, ctrl: Controller) -> bool:
+        return ctrl.uses_dial_temperature is not None
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        return self._ctrl.uses_dial_temperature
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Control the room to the Dial's temperature."""
+        await self.coordinator.async_set_controller(
+            self._ctrl, uses_dial_temperature=True
+        )
+        await self._async_refresh_if_not_streaming()
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Stop controlling the room to the Dial's temperature."""
+        await self.coordinator.async_set_controller(
+            self._ctrl, uses_dial_temperature=False
+        )
+        await self._async_refresh_if_not_streaming()
