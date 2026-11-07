@@ -65,18 +65,18 @@ def test_hvac_mode_off_when_standby(hass) -> None:
 
 
 def test_current_temperature(coordinator) -> None:
-    assert _entity(coordinator).current_temperature == 21.0
+    assert _entity(coordinator).native_current_temperature == 21.0
 
 
 def test_current_temperature_missing_ambient_returns_none(hass) -> None:
     space = make_space(ambient_temp_c=21.0)
     space.state.ambient_temperature_c = math.nan
     coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
-    assert _entity(coordinator).current_temperature is None
+    assert _entity(coordinator).native_current_temperature is None
 
 
 def test_target_temperature_heat_mode(coordinator) -> None:
-    assert _entity(coordinator).target_temperature == 22.0
+    assert _entity(coordinator).native_target_temperature == 22.0
 
 
 def test_target_temperature_range(hass) -> None:
@@ -85,8 +85,8 @@ def test_target_temperature_range(hass) -> None:
     )
     coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
     entity = _entity(coordinator)
-    assert entity.target_temperature_low == 18.0
-    assert entity.target_temperature_high == 26.0
+    assert entity.native_target_temperature_low == 18.0
+    assert entity.native_target_temperature_high == 26.0
 
 
 def test_target_temperature_hidden_in_fan_mode(hass) -> None:
@@ -95,9 +95,9 @@ def test_target_temperature_hidden_in_fan_mode(hass) -> None:
     )
     coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
     entity = _entity(coordinator)
-    assert entity.target_temperature is None
-    assert entity.target_temperature_low is None
-    assert entity.target_temperature_high is None
+    assert entity.native_target_temperature is None
+    assert entity.native_target_temperature_low is None
+    assert entity.native_target_temperature_high is None
 
 
 def test_target_temperature_hidden_in_dry_mode(hass) -> None:
@@ -106,9 +106,9 @@ def test_target_temperature_hidden_in_dry_mode(hass) -> None:
     )
     coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
     entity = _entity(coordinator)
-    assert entity.target_temperature is None
-    assert entity.target_temperature_low is None
-    assert entity.target_temperature_high is None
+    assert entity.native_target_temperature is None
+    assert entity.native_target_temperature_low is None
+    assert entity.native_target_temperature_high is None
 
 
 def test_target_temperature_hidden_when_standby_sentinel(hass) -> None:
@@ -117,9 +117,9 @@ def test_target_temperature_hidden_when_standby_sentinel(hass) -> None:
     )
     coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
     entity = _entity(coordinator)
-    assert entity.target_temperature is None
-    assert entity.target_temperature_low is None
-    assert entity.target_temperature_high is None
+    assert entity.native_target_temperature is None
+    assert entity.native_target_temperature_low is None
+    assert entity.native_target_temperature_high is None
 
 
 def test_target_temperature_shown_when_not_off_even_with_sentinel_values(hass) -> None:
@@ -128,10 +128,10 @@ def test_target_temperature_shown_when_not_off_even_with_sentinel_values(hass) -
     )
     coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
     entity = _entity(coordinator)
-    assert entity.target_temperature == 8.0
+    assert entity.native_target_temperature == 8.0
     # Single-setpoint mode: no range values.
-    assert entity.target_temperature_low is None
-    assert entity.target_temperature_high is None
+    assert entity.native_target_temperature_low is None
+    assert entity.native_target_temperature_high is None
 
 
 def test_target_temperature_cool_mode_single_setpoint(hass) -> None:
@@ -141,9 +141,9 @@ def test_target_temperature_cool_mode_single_setpoint(hass) -> None:
     )
     coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
     entity = _entity(coordinator)
-    assert entity.target_temperature == 23.0
-    assert entity.target_temperature_low is None
-    assert entity.target_temperature_high is None
+    assert entity.native_target_temperature == 23.0
+    assert entity.native_target_temperature_low is None
+    assert entity.native_target_temperature_high is None
 
 
 def test_target_temperature_heat_mode_single_setpoint(hass) -> None:
@@ -153,9 +153,9 @@ def test_target_temperature_heat_mode_single_setpoint(hass) -> None:
     )
     coordinator = make_mock_coordinator(hass, make_snapshot(spaces=[space]))
     entity = _entity(coordinator)
-    assert entity.target_temperature == 20.0
-    assert entity.target_temperature_low is None
-    assert entity.target_temperature_high is None
+    assert entity.native_target_temperature == 20.0
+    assert entity.native_target_temperature_low is None
+    assert entity.native_target_temperature_high is None
 
 
 def test_target_temperature_prefers_active_comfort_setting_when_controls_sentinel(
@@ -168,8 +168,8 @@ def test_target_temperature_prefers_active_comfort_setting_when_controls_sentine
     snapshot = make_snapshot(spaces=[space], comfort_settings=[cs])
     coordinator = make_mock_coordinator(hass, snapshot)
     entity = _entity(coordinator)
-    assert entity.target_temperature_low == 19.5
-    assert entity.target_temperature_high == 25.5
+    assert entity.native_target_temperature_low == 19.5
+    assert entity.native_target_temperature_high == 25.5
 
 
 def test_target_temperature_sentinel_falls_back_to_state_setpoint(hass) -> None:
@@ -181,7 +181,7 @@ def test_target_temperature_sentinel_falls_back_to_state_setpoint(hass) -> None:
     cs = make_comfort_setting(heat_setpoint_c=8.0, cool_setpoint_c=40.0)
     snapshot = make_snapshot(spaces=[space], comfort_settings=[cs])
     coordinator = make_mock_coordinator(hass, snapshot)
-    assert _entity(coordinator).target_temperature == 21.5
+    assert _entity(coordinator).native_target_temperature == 21.5
 
 
 @pytest.mark.parametrize(
