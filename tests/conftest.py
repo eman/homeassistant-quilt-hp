@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 from quilt_hp.models.comfort import ComfortSetting
 from quilt_hp.models.controller import Controller
 from quilt_hp.models.enums import (

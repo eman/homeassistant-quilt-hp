@@ -135,7 +135,7 @@ async def test_async_unload_entry(hass: HomeAssistant) -> None:
 async def test_cleanup_removed_entities(hass: HomeAssistant) -> None:
     """Obsolete fan entity and RPM sensors are removed; current entities kept."""
     from homeassistant.helpers import entity_registry as er
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from pytest_homeassistant.common import MockConfigEntry
 
     from custom_components.quilt_hp import _async_cleanup_removed_entities
     from custom_components.quilt_hp.const import DOMAIN
@@ -261,7 +261,7 @@ async def test_setup_loads_every_platform_and_unloads(
     """Set up, reload and unload the entry with the real platforms."""
     from homeassistant.config_entries import ConfigEntryState
     from homeassistant.helpers import entity_registry as er
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from pytest_homeassistant.common import MockConfigEntry
 
     from custom_components.quilt_hp.const import DOMAIN
 
@@ -307,7 +307,7 @@ async def test_remove_config_entry_device_only_when_gone(
 ) -> None:
     """A device can be deleted by hand only once Quilt no longer has it."""
     from homeassistant.helpers import device_registry as dr
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from pytest_homeassistant.common import MockConfigEntry
 
     from custom_components.quilt_hp import async_remove_config_entry_device
     from custom_components.quilt_hp.const import DOMAIN
@@ -339,7 +339,7 @@ async def test_remove_config_entry_device_only_when_gone(
 async def test_remove_stale_devices_and_room_entities(hass: HomeAssistant) -> None:
     """Setup cleanup drops devices and room entities Quilt no longer has."""
     from homeassistant.helpers import device_registry as dr, entity_registry as er
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from pytest_homeassistant.common import MockConfigEntry
 
     from custom_components.quilt_hp.const import DOMAIN
     from custom_components.quilt_hp.registry import async_remove_stale_devices

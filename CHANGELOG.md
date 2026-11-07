@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- **Requires Home Assistant 2026.11 or newer.** The climate entity now reports
+  temperatures through Home Assistant's new `native_*` climate API, which
+  removes the deprecation warnings logged at startup on 2026.11 (the old names
+  stop working in 2027.11).
+
 ## [6.1.0] - 2026-10-08
 
 ### Added

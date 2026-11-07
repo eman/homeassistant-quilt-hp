@@ -106,7 +106,7 @@ async def async_setup_entry(
 class QuiltClimateEntity(QuiltEntity, ClimateEntity):
     """Climate entity representing a Quilt space (room)."""
 
-    _attr_temperature_unit: UnitOfTemperature = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit: str = UnitOfTemperature.CELSIUS
     _attr_supported_features: ClimateEntityFeature = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
@@ -222,14 +222,14 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
 
     @property
     @override
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         if self._space.state.has_missing_ambient_temperature:
             return None
         return normalize_float(self._space.state.ambient_temperature_c)
 
     @property
     @override
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         if self._is_explicit_off_mode or not self._supports_setpoint_display:
             return None
         heat, cool = self._effective_setpoints
@@ -242,9 +242,9 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
 
     @property
     @override
-    def target_temperature_high(self) -> float | None:
+    def native_target_temperature_high(self) -> float | None:
         # Range setpoints apply only in Heat/Cool (auto); single-setpoint
-        # Heat and Cool modes use target_temperature instead.
+        # Heat and Cool modes use native_target_temperature instead.
         if self.hvac_mode != HVACMode.HEAT_COOL:
             return None
         _, cool = self._effective_setpoints
@@ -252,7 +252,7 @@ class QuiltClimateEntity(QuiltEntity, ClimateEntity):
 
     @property
     @override
-    def target_temperature_low(self) -> float | None:
+    def native_target_temperature_low(self) -> float | None:
         if self.hvac_mode != HVACMode.HEAT_COOL:
             return None
         heat, _ = self._effective_setpoints
