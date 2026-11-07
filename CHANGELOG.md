@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [6.2.0] - 2026-11-07
+
 ### Changed
 - **Requires Home Assistant 2026.11 or newer.** The climate entity now reports
   temperatures through Home Assistant's new `native_*` climate API, which
@@ -439,7 +441,8 @@
 - JWT token persistence via `HATokenStore` (HA `Storage` API)
 - Automatic token refresh with transparent re-login on expiry
 
-[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.1.0...HEAD
+[Unreleased]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.2.0...HEAD
+[6.2.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.1.0...v6.2.0
 [6.1.0]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.2...v6.1.0
 [6.0.2]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.1...v6.0.2
 [6.0.1]: https://github.com/eman/homeassistant-quilt-hp/compare/v6.0.0...v6.0.1
