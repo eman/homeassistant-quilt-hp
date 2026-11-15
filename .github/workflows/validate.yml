@@ -59,10 +59,11 @@ jobs:
       - name: Run Tests
         run: pytest
 
-  hacs:
-    name: HACS Action
+  marketplace:
+    name: Marketplace validation
     runs-on: ubuntu-latest
     steps:
+      # The Home Assistant Marketplace validates repositories with the HACS action.
       - uses: hacs/action@main
         with:
           category: integration

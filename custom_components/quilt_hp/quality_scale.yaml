@@ -8,7 +8,7 @@ rules:
     comment: Push-first (gRPC stream); polling is a 5-minute fallback.
   brands:
     status: exempt
-    comment: Custom integration distributed via HACS; not in the brands repo.
+    comment: Custom integration distributed via the Home Assistant Marketplace; ships its own images in brand/ instead of the brands repo.
   common-modules: done
   config-flow: done
   config-flow-test-coverage: done

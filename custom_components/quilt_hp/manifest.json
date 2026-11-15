@@ -1,6 +1,7 @@
 {
   "domain": "quilt_hp",
   "name": "Quilt",
+  "categories": ["climate.heat_pumps_air_conditioning"],
   "codeowners": ["@eman"],
   "config_flow": true,
   "documentation": "https://github.com/eman/homeassistant-quilt-hp",

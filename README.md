@@ -4,7 +4,7 @@
 
 [![Validate](https://github.com/eman/homeassistant-quilt-hp/actions/workflows/validate.yml/badge.svg)](https://github.com/eman/homeassistant-quilt-hp/actions/workflows/validate.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/eman/homeassistant-quilt-hp)](https://github.com/eman/homeassistant-quilt-hp/releases)
-[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/default)
+[![Home Assistant Marketplace](https://img.shields.io/badge/Home%20Assistant-Marketplace-41BDF5.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=eman&repository=homeassistant-quilt-hp&category=integration)
 
 A Home Assistant custom component for [Quilt](https://www.quilt.com/) mini-split HVAC systems.
 
@@ -37,18 +37,20 @@ For protocol details, streaming behavior, and the full client feature set, see t
 
 ## Installation
 
-### HACS (recommended)
+### Marketplace (recommended)
 
-Click the badge to open the integration in HACS:
+Click the badge to open the integration in the Home Assistant Marketplace:
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eman&repository=homeassistant-quilt-hp&category=integration)
+[![Open your Home Assistant instance and open a repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=eman&repository=homeassistant-quilt-hp&category=integration)
 
 Or find it yourself:
 
-1. In Home Assistant, open **HACS** from the sidebar.
+1. In Home Assistant, go to **Settings** → **Marketplace**.
 2. Search for **Quilt** and open it.
-3. Click **Download** and confirm.
-4. Restart Home Assistant.
+3. Select **Install**, check the version, and select **Install** again to confirm.
+
+No restart is needed: the Quilt setup opens as soon as the install finishes. If you
+close it, continue with [Initial Setup](#initial-setup) below.
 
 ### Manual
 
@@ -58,6 +60,10 @@ and restart.
 ## Configuration
 
 ### Initial Setup
+
+[![Open your Home Assistant instance and start setting up the Quilt integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=quilt_hp)
+
+Or set it up yourself:
 
 1. Navigate to **Settings** → **Devices & Services** in Home Assistant
 2. Click **+ Add Integration** and search for **"Quilt"**
