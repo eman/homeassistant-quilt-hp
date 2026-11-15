@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+- Installation docs now cover the **Home Assistant Marketplace** (Settings →
+  Marketplace), which replaces HACS on Home Assistant 2026.11, including a
+  Marketplace badge and a one-click setup link.
+- The manifest declares the `climate.heat_pumps_air_conditioning` category,
+  which the Marketplace catalog shows.
+
 ## [6.2.0] - 2026-11-07
 
 ### Changed
